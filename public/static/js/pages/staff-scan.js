@@ -41,8 +41,12 @@ async function pageStaffScan() {
       <div class="bg-white rounded-2xl shadow p-4 mb-4">
         <h2 class="text-lg font-bold text-sky-600 mb-3 text-center">QRスキャン</h2>
         <div id="qr-reader" class="w-full rounded-lg overflow-hidden mb-3"></div>
-        <!-- スキャン結果フラッシュ -->
-        <div id="scan-result" class="hidden rounded-lg p-4 text-center font-bold text-lg transition-all"></div>
+      </div>
+
+      <!-- スキャン結果フルスクリーンオーバーレイ -->
+      <div id="scan-overlay" class="hidden fixed inset-0 z-50 items-center justify-center flex-col">
+        <div id="scan-overlay-icon" class="scan-overlay-pop text-8xl mb-4"></div>
+        <div id="scan-overlay-text" class="scan-overlay-pop text-3xl font-bold text-white text-center px-6"></div>
       </div>
 
       <!-- 直近スキャン履歴 -->
@@ -161,65 +165,100 @@ function startScanner() {
   });
 }
 
-async function onScanSuccess(decodedText) {
-  // URLから ticket_id を抽出（例: https://domain/scan/TICKET_ID）
-  const match = decodedText.match(/\/scan\/([^/?#]+)/);
-  if (!match) { showScanResult('ng', '不正なQR', ''); return; }
-  const ticketId = match[1];
+let scanLocked = false;
 
-  if (navigator.onLine) {
-    try {
-      const res = await API.post('/ticket/scan', { ticket_id: ticketId });
-      const guestName = res.guest_name || '';
-      showScanResult('ok', `入場OK ${guestName}`, ticketId);
-      addHistory({ ticketId, status: 'ok', label: `✅ 入場OK`, time: new Date() });
-      loadStatus();
-      loadMyScans();
-    } catch (e) {
-      const msg = e.message || '';
-      if (msg.includes('入場済み') || msg.includes('already')) {
-        showScanResult('ng', '入場済み', ticketId);
-        addHistory({ ticketId, status: 'ng', label: '❌ 入場済み', time: new Date() });
-      } else if (msg.includes('無効') || msg.includes('invalid')) {
-        showScanResult('ng', '無効なチケット', ticketId);
-        addHistory({ ticketId, status: 'ng', label: '❌ 無効', time: new Date() });
-      } else {
-        showScanResult('ng', '不正なQR', ticketId);
-        addHistory({ ticketId, status: 'ng', label: '❌ 不正', time: new Date() });
+async function onScanSuccess(decodedText) {
+  // html5-qrcode はカメラにQRが映っている間、成功検出のたびに毎フレーム
+  // (fps:10 = 約100ms間隔) このコールバックを呼び続ける。ロックせずにいると
+  // 1回のかざしで /ticket/scan への並列リクエストが複数発生し、最初の1件だけ
+  // 成功した直後に後続のリクエストが「入場済み」(409)を返して結果表示を
+  // 上書きしてしまう（実際は入場成功しているのに画面上は失敗に見えるバグ）。
+  // 検出直後にスキャナーを一時停止し、処理完了後クールダウンを置いてから
+  // 再開することで、1回のかざしにつき1リクエストのみになるようにする。
+  if (scanLocked) return;
+  scanLocked = true;
+  if (html5QrScanner) {
+    try { html5QrScanner.pause(true); } catch (_) {}
+  }
+
+  try {
+    // URLから ticket_id を抽出（例: https://domain/scan/TICKET_ID）
+    const match = decodedText.match(/\/scan\/([^/?#]+)/);
+    if (!match) { showScanResult('ng', '不正なQR', ''); return; }
+    const ticketId = match[1];
+
+    if (navigator.onLine) {
+      try {
+        const res = await API.post('/ticket/scan', { ticket_id: ticketId });
+        const guestName = res.guest_name || '';
+        showScanResult('ok', `入場OK ${guestName}`, ticketId);
+        addHistory({ ticketId, status: 'ok', label: `✅ 入場OK`, time: new Date() });
+        loadStatus();
+        loadMyScans();
+      } catch (e) {
+        const msg = e.message || '';
+        if (msg.includes('入場済み') || msg.includes('already')) {
+          showScanResult('ng', '入場済み', ticketId);
+          addHistory({ ticketId, status: 'ng', label: '❌ 入場済み', time: new Date() });
+        } else if (msg.includes('無効') || msg.includes('invalid')) {
+          showScanResult('ng', '無効なチケット', ticketId);
+          addHistory({ ticketId, status: 'ng', label: '❌ 無効', time: new Date() });
+        } else {
+          showScanResult('ng', '不正なQR', ticketId);
+          addHistory({ ticketId, status: 'ng', label: '❌ 不正', time: new Date() });
+        }
       }
+    } else {
+      // オフライン: IndexedDB で判定
+      const ticket = await getFromIndexedDB(ticketId);
+      if (!ticket) { showScanResult('ng', '不正なQR', ticketId); return; }
+      if (ticket.is_valid === 0) { showScanResult('ng', '無効なチケット', ticketId); return; }
+      if (ticket.used === 1) { showScanResult('ng', '入場済み', ticketId); return; }
+      // キューに積む
+      await addToQueue({ ticket_id: ticketId, scanned_at: new Date().toISOString(), session_id: getSessionId() });
+      // ローカルキャッシュを更新
+      ticket.used = 1;
+      await saveToIndexedDB([ticket]);
+      showScanResult('ok', '入場OK（オフライン）', ticketId);
+      addHistory({ ticketId, status: 'ok', label: '✅ 入場OK(オフライン)', time: new Date() });
+      updateSyncButton();
     }
-  } else {
-    // オフライン: IndexedDB で判定
-    const ticket = await getFromIndexedDB(ticketId);
-    if (!ticket) { showScanResult('ng', '不正なQR', ticketId); return; }
-    if (ticket.is_valid === 0) { showScanResult('ng', '無効なチケット', ticketId); return; }
-    if (ticket.used === 1) { showScanResult('ng', '入場済み', ticketId); return; }
-    // キューに積む
-    await addToQueue({ ticket_id: ticketId, scanned_at: new Date().toISOString(), session_id: getSessionId() });
-    // ローカルキャッシュを更新
-    ticket.used = 1;
-    await saveToIndexedDB([ticket]);
-    showScanResult('ok', '入場OK（オフライン）', ticketId);
-    addHistory({ ticketId, status: 'ok', label: '✅ 入場OK(オフライン)', time: new Date() });
-    updateSyncButton();
+  } finally {
+    setTimeout(() => {
+      scanLocked = false;
+      if (html5QrScanner) {
+        try { html5QrScanner.resume(); } catch (_) {}
+      }
+    }, 1500);
   }
 }
 
 function showScanResult(type, message, ticketId) {
-  const el = document.getElementById('scan-result');
-  if (!el) return;
-  el.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800', 'flash-ok', 'flash-ng');
+  const overlay = document.getElementById('scan-overlay');
+  const iconEl = document.getElementById('scan-overlay-icon');
+  const textEl = document.getElementById('scan-overlay-text');
+  if (!overlay || !iconEl || !textEl) return;
+
+  overlay.classList.remove('hidden', 'bg-green-500', 'bg-red-500');
+  overlay.classList.add('flex', type === 'ok' ? 'bg-green-500' : 'bg-red-500');
+  // 再生時にポップアニメーションを毎回発火させるためクラスを再付与する
+  iconEl.classList.remove('scan-overlay-pop'); void iconEl.offsetWidth; iconEl.classList.add('scan-overlay-pop');
+  textEl.classList.remove('scan-overlay-pop'); void textEl.offsetWidth; textEl.classList.add('scan-overlay-pop');
+  iconEl.textContent = type === 'ok' ? '✅' : '❌';
+  textEl.textContent = message;
+
   if (type === 'ok') {
-    el.className = 'rounded-lg p-4 text-center font-bold text-lg bg-green-100 text-green-800 flash-ok';
     playSound('ok');
     if (navigator.vibrate) navigator.vibrate(200);
   } else {
-    el.className = 'rounded-lg p-4 text-center font-bold text-lg bg-red-100 text-red-800 flash-ng';
     playSound('ng');
+    if (navigator.vibrate) navigator.vibrate([100, 60, 100]);
   }
-  el.textContent = message;
-  el.classList.remove('hidden');
-  setTimeout(() => el.classList.add('hidden'), 3000);
+
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('flex');
+  }, 1200);
 }
 
 function addHistory(item) {

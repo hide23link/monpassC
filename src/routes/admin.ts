@@ -142,6 +142,32 @@ adminRoutes.post("/tickets", async (c) => {
   return c.json({ ticket_id: ticketId });
 });
 
+adminRoutes.post("/tickets/bulk-delete", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const ticketIds = Array.isArray(body.ticket_ids)
+    ? body.ticket_ids.filter((id: unknown): id is string => typeof id === "string")
+    : [];
+  if (ticketIds.length === 0) {
+    return c.json({ detail: "削除するチケットを選択してください" }, 400);
+  }
+
+  const db = c.env.DB;
+  // Same D1-FK-enforcement note as DELETE /tickets/:id — clear
+  // offline_scan_queue rows before deleting each ticket. db.batch() runs
+  // all statements in a single implicit transaction.
+  const statements = ticketIds.flatMap((id: string) => [
+    db.prepare("DELETE FROM offline_scan_queue WHERE ticket_id = ?").bind(id),
+    db.prepare("DELETE FROM tickets WHERE id = ?").bind(id),
+  ]);
+  const results = await db.batch(statements);
+
+  let deleted = 0;
+  for (let i = 1; i < results.length; i += 2) {
+    deleted += results[i].meta.changes;
+  }
+  return c.json({ deleted, requested: ticketIds.length });
+});
+
 adminRoutes.delete("/tickets/:ticket_id", async (c) => {
   const ticketId = c.req.param("ticket_id");
   const db = c.env.DB;

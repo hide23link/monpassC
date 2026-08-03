@@ -7,6 +7,10 @@
 .flash-ok  { animation: flash-green .6s ease; }
 .flash-ng  { animation: flash-red   .6s ease; }
 
+/* スキャン結果フルスクリーンオーバーレイ */
+@keyframes scan-pop { 0%{transform:scale(.6); opacity:0} 60%{transform:scale(1.05); opacity:1} 100%{transform:scale(1); opacity:1} }
+.scan-overlay-pop { animation: scan-pop .2s ease-out; }
+
 /* カメラ枠 */
 #qr-reader { border-radius: .5rem; overflow: hidden; }
 #qr-reader video { width: 100% !important; }

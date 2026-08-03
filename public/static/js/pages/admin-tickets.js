@@ -1,4 +1,5 @@
 let allTickets = [];
+let selectedTicketIds = new Set();
 
 async function pageAdminTickets() {
   renderAdminLayout('tickets', `
@@ -19,9 +20,21 @@ async function pageAdminTickets() {
           ＋ 手動追加
         </button>
       </div>
+      <div id="bulk-action-bar" class="hidden items-center gap-3 mb-3 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+        <span id="bulk-selected-count" class="text-sm text-red-700 font-medium"></span>
+        <button onclick="bulkDeleteTickets()"
+          class="ml-auto bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg transition">
+          🗑 選択したチケットを削除
+        </button>
+        <button onclick="clearTicketSelection()"
+          class="text-xs text-gray-500 border border-gray-300 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+          選択解除
+        </button>
+      </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm hidden md:table" id="tickets-table">
           <thead><tr class="text-left text-gray-500 border-b text-xs">
+            <th class="pb-2 pr-2 w-8"><input type="checkbox" id="select-all-tickets" onchange="toggleSelectAllTickets(this.checked)"></th>
             <th class="pb-2 pr-3">生徒名</th><th class="pb-2 pr-3">クラス</th>
             <th class="pb-2 pr-3">招待者名</th><th class="pb-2 pr-3">発行日時</th>
             <th class="pb-2 pr-3">入場状態</th><th class="pb-2 pr-3">入場日時</th>
@@ -83,6 +96,74 @@ function applyTicketFilter() {
   // カード（スマホ）
   const cards = document.getElementById('tickets-cards');
   if (cards) cards.innerHTML = filtered.map(ticketMobileCard).join('');
+
+  // フィルターで隠れた行の選択は解除し、表示を同期する
+  const visibleIds = new Set(filtered.map(t => t.ticket_id));
+  for (const id of Array.from(selectedTicketIds)) {
+    if (!visibleIds.has(id)) selectedTicketIds.delete(id);
+  }
+  syncTicketCheckboxes();
+  updateBulkActionBar();
+}
+
+function toggleTicketSelection(ticketId, checked) {
+  if (checked) selectedTicketIds.add(ticketId);
+  else selectedTicketIds.delete(ticketId);
+  syncTicketCheckboxes();
+  updateBulkActionBar();
+}
+
+function toggleSelectAllTickets(checked) {
+  document.querySelectorAll('.ticket-select-checkbox').forEach(cb => {
+    const id = cb.dataset.ticketId;
+    if (checked) selectedTicketIds.add(id);
+    else selectedTicketIds.delete(id);
+  });
+  syncTicketCheckboxes();
+  updateBulkActionBar();
+}
+
+function clearTicketSelection() {
+  selectedTicketIds.clear();
+  syncTicketCheckboxes();
+  updateBulkActionBar();
+}
+
+function syncTicketCheckboxes() {
+  document.querySelectorAll('.ticket-select-checkbox').forEach(cb => {
+    cb.checked = selectedTicketIds.has(cb.dataset.ticketId);
+  });
+  const selectAll = document.getElementById('select-all-tickets');
+  const boxes = document.querySelectorAll('.ticket-select-checkbox');
+  if (selectAll) {
+    selectAll.checked = boxes.length > 0 && Array.from(boxes).every(cb => cb.checked);
+  }
+}
+
+function updateBulkActionBar() {
+  const bar = document.getElementById('bulk-action-bar');
+  const countEl = document.getElementById('bulk-selected-count');
+  if (!bar || !countEl) return;
+  if (selectedTicketIds.size > 0) {
+    countEl.textContent = `${selectedTicketIds.size}件選択中`;
+    bar.classList.remove('hidden');
+    bar.classList.add('flex');
+  } else {
+    bar.classList.add('hidden');
+    bar.classList.remove('flex');
+  }
+}
+
+async function bulkDeleteTickets() {
+  const ids = Array.from(selectedTicketIds);
+  if (ids.length === 0) return;
+  if (!confirm(`選択した${ids.length}件のチケットを削除しますか？\n※この操作は取り消せません`)) return;
+  try {
+    const res = await API.post('/admin/tickets/bulk-delete', { ticket_ids: ids });
+    showToast(`${res.deleted}件のチケットを削除しました`, 'success');
+    selectedTicketIds.clear();
+    await loadTickets();
+  } catch (e) { showToast(e.message, 'error'); }
 }
 
 function statusLabel(t) {
@@ -124,6 +205,11 @@ function ticketActions(t) {
 
 function ticketRow(t) {
   return `<tr class="border-b last:border-0 hover:bg-gray-50" data-ticket-id="${t.ticket_id}">
+    <td class="py-1.5 pr-2">
+      <input type="checkbox" class="ticket-select-checkbox" data-ticket-id="${t.ticket_id}"
+        onchange="toggleTicketSelection('${t.ticket_id}', this.checked)"
+        ${selectedTicketIds.has(t.ticket_id) ? 'checked' : ''}>
+    </td>
     <td class="py-1.5 pr-3">${escHtml(t.student_name || '')}</td>
     <td class="py-1.5 pr-3 text-gray-500">${escHtml(t.class || '')}</td>
     <td class="py-1.5 pr-3">${escHtml(t.guest_name || '')}</td>
@@ -137,7 +223,12 @@ function ticketRow(t) {
 function ticketMobileCard(t) {
   return `<div class="bg-gray-50 rounded-xl p-3 border border-gray-200" data-ticket-id="${t.ticket_id}">
     <div class="flex justify-between items-start mb-1">
-      <span class="font-medium">${escHtml(t.student_name || '')} <span class="text-gray-500 text-xs">${escHtml(t.class || '')}</span></span>
+      <span class="flex items-center gap-2">
+        <input type="checkbox" class="ticket-select-checkbox" data-ticket-id="${t.ticket_id}"
+          onchange="toggleTicketSelection('${t.ticket_id}', this.checked)"
+          ${selectedTicketIds.has(t.ticket_id) ? 'checked' : ''}>
+        <span class="font-medium">${escHtml(t.student_name || '')} <span class="text-gray-500 text-xs">${escHtml(t.class || '')}</span></span>
+      </span>
       ${statusLabel(t)}
     </div>
     <p class="text-sm text-gray-600 mb-2">招待者: ${escHtml(t.guest_name || '')}</p>
