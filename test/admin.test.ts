@@ -238,6 +238,54 @@ describe("admin ticket management", () => {
       expect(res.status).toBe(200);
     }
   });
+
+  it("bulk-deletes selected tickets, including already-used ones, and leaves the rest untouched", async () => {
+    const token = await adminToken();
+    const student = await seedStudent({ id: "bulkdel" });
+
+    const ticketIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const res = await authedFetch(
+        "/admin/tickets",
+        token,
+        jsonInit({ student_id: student.id, guest_name: `bulk-guest-${i}` }),
+      );
+      const { ticket_id } = (await res.json()) as { ticket_id: string };
+      ticketIds.push(ticket_id);
+    }
+    // Mark one as used to confirm bulk-delete force-deletes used tickets too
+    // (same FK-clearing behavior as the single-ticket DELETE route).
+    await authedFetch(`/admin/tickets/${ticketIds[0]}`, token, jsonInit({ used: 1 }, "PUT"));
+
+    const keepRes = await authedFetch(
+      "/admin/tickets",
+      token,
+      jsonInit({ student_id: student.id, guest_name: "kept-ticket" }),
+    );
+    const { ticket_id: keptId } = (await keepRes.json()) as { ticket_id: string };
+
+    const bulkRes = await authedFetch(
+      "/admin/tickets/bulk-delete",
+      token,
+      jsonInit({ ticket_ids: ticketIds }),
+    );
+    expect(bulkRes.status).toBe(200);
+    const bulkBody = (await bulkRes.json()) as { deleted: number; requested: number };
+    expect(bulkBody).toMatchObject({ deleted: 3, requested: 3 });
+
+    for (const id of ticketIds) {
+      const res = await authedFetch(`/admin/tickets/${id}`, token);
+      expect(res.status).toBe(404);
+    }
+    const stillThere = await authedFetch(`/admin/tickets/${keptId}`, token);
+    expect(stillThere.status).toBe(200);
+  });
+
+  it("rejects bulk-delete with an empty ticket_ids list", async () => {
+    const token = await adminToken();
+    const res = await authedFetch("/admin/tickets/bulk-delete", token, jsonInit({ ticket_ids: [] }));
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("admin staff management", () => {

@@ -21,12 +21,12 @@ test.describe("staff scan page — display", () => {
     await expect(page.locator("#qr-reader")).toBeVisible();
   });
 
-  test("scan-result element exists (initially hidden)", async ({ page, request }) => {
+  test("scan-overlay element exists (initially hidden)", async ({ page, request }) => {
     const adminToken = await getAdminToken(request);
     const staff = await seedStaff(request, adminToken);
     await loginStaffUI(page, staff.id, staff.password);
-    await page.waitForSelector("#scan-result", { state: "attached", timeout: 5000 });
-    expect(await page.locator("#scan-result").count()).toBeGreaterThan(0);
+    await page.waitForSelector("#scan-overlay", { state: "attached", timeout: 5000 });
+    await expect(page.locator("#scan-overlay")).toBeHidden();
   });
 
   test("sync button is hidden until the offline queue is non-empty", async ({ page, request }) => {
