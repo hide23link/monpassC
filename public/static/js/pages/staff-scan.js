@@ -27,8 +27,10 @@ function playSound(type) {
 
 async function pageStaffScan() {
   const app = document.getElementById('app');
+  const isAdmin = typeof Auth !== 'undefined' && Auth.getRole() === 'admin';
   app.innerHTML = `
     <div class="max-w-lg mx-auto">
+      ${isAdmin ? `<a href="#/admin" class="inline-flex items-center gap-1 text-sm text-sky-600 hover:text-sky-700 mb-3">← 管理画面に戻る</a>` : ''}
       <!-- オンライン/オフライン状態 -->
       <div id="online-indicator" class="flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-green-50 border border-green-200">
         <span id="online-text" class="text-green-700 text-sm font-medium">🟢 オンライン</span>
@@ -182,6 +184,14 @@ async function onScanSuccess(decodedText) {
   }
 
   try {
+    // 昇格QR（生徒が「スタッフ昇格」ボタンで表示する
+    // https://domain/promote/approve?token=... ）はチケットQRと別経路で処理する。
+    const promoteMatch = decodedText.match(/\/promote\/approve\?token=([^&\s]+)/);
+    if (promoteMatch) {
+      await handlePromoteApprove(promoteMatch[1]);
+      return;
+    }
+
     // URLから ticket_id を抽出（例: https://domain/scan/TICKET_ID）
     const match = decodedText.match(/\/scan\/([^/?#]+)/);
     if (!match) { showScanResult('ng', '不正なQR', ''); return; }
@@ -230,6 +240,29 @@ async function onScanSuccess(decodedText) {
         try { html5QrScanner.resume(); } catch (_) {}
       }
     }, 1500);
+  }
+}
+
+async function handlePromoteApprove(promoteToken) {
+  if (!navigator.onLine) {
+    showScanResult('ng', 'オフラインでは承認できません', '');
+    addHistory({ ticketId: '', status: 'ng', label: '❌ 昇格失敗(オフライン)', time: new Date() });
+    return;
+  }
+  try {
+    await API.post('/promote/approve', { promote_token: promoteToken });
+    showScanResult('ok', 'スタッフ昇格を承認しました', '');
+    addHistory({ ticketId: '', status: 'ok', label: '✅ 昇格承認', time: new Date() });
+  } catch (e) {
+    const msg = e.message || '';
+    if (msg.includes('使用済み')) {
+      showScanResult('ng', 'この昇格QRは使用済みです', '');
+    } else if (msg.includes('無効')) {
+      showScanResult('ng', '無効な昇格QRです', '');
+    } else {
+      showScanResult('ng', '昇格の承認に失敗しました', '');
+    }
+    addHistory({ ticketId: '', status: 'ng', label: '❌ 昇格失敗', time: new Date() });
   }
 }
 
