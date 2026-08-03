@@ -1,0 +1,35 @@
+{
+  "name": "monpassc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "db:migrate:local": "wrangler d1 migrations apply monpass-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply monpass-db --remote",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "encoding-japanese": "^2.2.0",
+    "hono": "^4.6.14",
+    "jose": "^5.9.6",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.6.4",
+    "@cloudflare/workers-types": "^5.20260801.1",
+    "@playwright/test": "^1.62.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/encoding-japanese": "^2.2.1",
+    "@types/node": "^26.1.2",
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.118.0"
+  }
+}

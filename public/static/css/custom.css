@@ -1,0 +1,16 @@
+/* QRコード */
+.qr-img { image-rendering: pixelated; }
+
+/* スキャン結果フラッシュ */
+@keyframes flash-green { 0%,100%{background:#dcfce7} 50%{background:#86efac} }
+@keyframes flash-red   { 0%,100%{background:#fee2e2} 50%{background:#fca5a5} }
+.flash-ok  { animation: flash-green .6s ease; }
+.flash-ng  { animation: flash-red   .6s ease; }
+
+/* カメラ枠 */
+#qr-reader { border-radius: .5rem; overflow: hidden; }
+#qr-reader video { width: 100% !important; }
+#qr-reader img   { display: none !important; }
+
+/* 管理者タブ横スクロール */
+#admin-tabs::-webkit-scrollbar { height: 0; }
