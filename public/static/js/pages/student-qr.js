@@ -37,7 +37,7 @@ async function pageStudentQr() {
         <div id="promote-section">
           <button id="promote-btn"
             class="w-full border border-sky-400 text-sky-600 hover:bg-sky-50 font-medium py-2 rounded-lg transition">
-            🔑 管理者モードに切替
+            🔑 スタッフに切替
           </button>
         </div>
       </div>
@@ -64,9 +64,10 @@ async function pageStudentQr() {
     <!-- 昇格QRモーダル -->
     <div id="promote-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
       <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center">
-        <h3 class="text-lg font-bold text-sky-600 mb-2">管理者モード昇格</h3>
-        <p class="text-sm text-gray-600 mb-4">管理者スマホでこのQRをスキャンしてください</p>
+        <h3 class="text-lg font-bold text-sky-600 mb-2">スタッフ昇格</h3>
+        <p class="text-sm text-gray-600 mb-4">管理者・スタッフのスマホでこのQRをスキャンしてもらってください</p>
         <canvas id="promote-qr-canvas" width="192" height="192" class="w-48 h-48 mx-auto mb-4 qr-img"></canvas>
+        <p id="promote-status" class="text-xs text-gray-400 mb-4">承認をお待ちください…</p>
         <button onclick="closePromoteModal()" class="bg-gray-200 hover:bg-gray-300 px-6 py-2 rounded-lg">閉じる</button>
       </div>
     </div>`;
@@ -223,6 +224,8 @@ async function deleteTicket(ticketId) {
   }
 }
 
+let promotePollTimer = null;
+
 async function requestPromotion() {
   try {
     const data = await API.post('/promote/request', {});
@@ -230,9 +233,39 @@ async function requestPromotion() {
     const canvas = document.getElementById('promote-qr-canvas');
     await QRCode.toCanvas(canvas, data.qr_content, { width: 192, margin: 2 });
     document.getElementById('promote-modal').classList.remove('hidden');
+    const statusEl = document.getElementById('promote-status');
+    if (statusEl) statusEl.textContent = '承認をお待ちください…';
+    startPromotePolling(data.session_id);
   } catch (e) {
     showToast(e.message, 'error');
   }
+}
+
+// 承認するのは別デバイス(管理者・スタッフのスマホ)なので、昇格後のトークンは
+// このリクエスト元の画面がポーリングで取得しにいく必要がある(承認側のレス
+// ポンスに含まれるトークンをそのまま使えるのは承認側の画面だけのため)。
+function startPromotePolling(sessionId) {
+  stopPromotePolling();
+  const startedAt = Date.now();
+  promotePollTimer = setInterval(async () => {
+    // QR発行から10分経っても未承認ならポーリングを打ち切る(電池・通信の節約)
+    if (Date.now() - startedAt > 10 * 60 * 1000) { stopPromotePolling(); return; }
+    try {
+      const res = await API.get(`/promote/status?session_id=${encodeURIComponent(sessionId)}`);
+      if (res.approved) {
+        stopPromotePolling();
+        Auth.setToken(res.token);
+        const statusEl = document.getElementById('promote-status');
+        if (statusEl) statusEl.textContent = '承認されました！切り替えます…';
+        showToast('スタッフ権限が承認されました', 'success');
+        setTimeout(() => { location.hash = '#/staff'; }, 800);
+      }
+    } catch (_) { /* 一時的な通信エラーは次回ポーリングでリトライ */ }
+  }, 2000);
+}
+
+function stopPromotePolling() {
+  if (promotePollTimer) { clearInterval(promotePollTimer); promotePollTimer = null; }
 }
 
 async function openQrModal(ticketId) {
@@ -249,7 +282,10 @@ async function openQrModal(ticketId) {
   }
 }
 function closeQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
-function closePromoteModal() { document.getElementById('promote-modal').classList.add('hidden'); }
+function closePromoteModal() {
+  document.getElementById('promote-modal').classList.add('hidden');
+  stopPromotePolling();
+}
 
 // main.py の make_qr_base64() のレイアウト(ヘッダーテキスト + 区切り線 + QR)を
 // Canvas 2D で再現し、保存用の1枚のPNGとして合成する(PLAN.md section 4)。

@@ -24,6 +24,7 @@ function showToast(message, type = 'info') {
 
 const ADMIN_TABS = [
   { key: 'dashboard', label: 'ダッシュボード', hash: '#/admin' },
+  { key: 'scan',      label: 'QRスキャン',     hash: '#/staff' },
   { key: 'tickets',   label: 'チケット',       hash: '#/admin/tickets' },
   { key: 'students',  label: '生徒',           hash: '#/admin/students' },
   { key: 'import',    label: 'インポート',       hash: '#/admin/import' },

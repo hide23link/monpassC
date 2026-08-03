@@ -47,6 +47,32 @@ promoteRoutes.post("/request", requireStudent, async (c) => {
   });
 });
 
+// The requesting student's browser holds session_id (from /request) and
+// polls here while the QR is on screen. Once a staff/admin/promoted-student
+// approves via /approve, this hands back a freshly issued promoted JWT so
+// the *original* requester's device gets staff-equivalent access — not the
+// approver's device, which is what actually scanned the QR.
+promoteRoutes.get("/status", requireStudent, async (c) => {
+  const studentId = c.get("payload").sub;
+  const sessionId = c.req.query("session_id") || "";
+  const db = c.env.DB;
+
+  const row = await db
+    .prepare("SELECT student_id, token_used FROM temp_promotions WHERE session_id = ?")
+    .bind(sessionId)
+    .first<{ student_id: string; token_used: number }>();
+
+  if (row === null || row.student_id !== studentId) {
+    return c.json({ detail: "無効なセッションです" }, 404);
+  }
+  if (row.token_used === 0) {
+    return c.json({ approved: false });
+  }
+
+  const token = await issueStudentToken(studentId, getConfig(c.env).jwtSecret, true);
+  return c.json({ approved: true, token, student_id: studentId });
+});
+
 type TempPromotionRow = { id: string; student_id: string; token_used: number };
 
 promoteRoutes.post("/approve", requirePromoteApprover, async (c) => {
