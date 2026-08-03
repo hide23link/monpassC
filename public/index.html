@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>学園祭入場システム（仮）</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { primary: '#0ea5e9' } } }
+    }
+  </script>
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <!-- html5-qrcode -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- qrcode (client-side QR rendering; QR generation moved off the server, see PLAN.md section 4).
+       The npm package only ships a CJS/ESM module (no standalone browser
+       global), so it's imported as an ES module here and exposed as
+       window.QRCode for the plain classic-script page files to use. -->
+  <script type="module">
+    // window.QRCodeReady lets classic (non-module) page scripts `await`
+    // library load completion instead of racing it — matters on the flaky
+    // gate-side wifi this app is designed to tolerate.
+    window.QRCodeReady = import('https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm')
+      .then(m => { window.QRCode = m.default; return window.QRCode; });
+  </script>
+  <link rel="stylesheet" href="/static/css/custom.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+  <!-- ナビゲーションバー -->
+  <nav class="bg-sky-500 text-white shadow-md sticky top-0 z-40">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="#/login" class="font-bold text-lg tracking-tight">🎪 学園祭入場システム（仮）</a>
+      <div class="flex items-center gap-3 text-sm">
+        <span id="nav-user" class="hidden opacity-90 text-sm"></span>
+        <button id="logout-btn"
+          class="hidden bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition text-sm"
+          onclick="logout()">
+          ログアウト
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- メインコンテンツ -->
+  <main class="max-w-5xl mx-auto px-4 py-6" id="app">
+    <div class="flex justify-center py-20">
+      <div class="animate-spin h-10 w-10 rounded-full border-4 border-sky-500 border-t-transparent"></div>
+    </div>
+  </main>
+
+  <!-- トーストコンテナ（JSで動的生成） -->
+
+  <!-- JS: 共通 -->
+  <script src="/static/js/common.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/auth.js"></script>
+
+  <!-- JS: ページ -->
+  <script src="/static/js/pages/student-login.js"></script>
+  <script src="/static/js/pages/staff-login.js"></script>
+  <script src="/static/js/pages/student-qr.js"></script>
+  <script src="/static/js/pages/staff-scan.js"></script>
+  <script src="/static/js/pages/admin-dashboard.js"></script>
+  <script src="/static/js/pages/admin-tickets.js"></script>
+  <script src="/static/js/pages/admin-students.js"></script>
+  <script src="/static/js/pages/admin-import.js"></script>
+  <script src="/static/js/pages/admin-staff.js"></script>
+  <script src="/static/js/pages/admin-settings.js"></script>
+
+  <!-- JS: ルーター（最後に初期化） -->
+  <script src="/static/js/router.js"></script>
+  <script>
+    // ルート登録
+    Router.register('#/login',           pageStudentLogin,   []);
+    Router.register('#/staff-login',     pageStaffLogin,     []);
+    Router.register('#/qr',              pageStudentQr,      ['student']);
+    Router.register('#/staff',           pageStaffScan,      ['staff_or_admin']);
+    Router.register('#/admin',           pageAdminDashboard, ['admin']);
+    Router.register('#/admin/tickets',   pageAdminTickets,   ['admin']);
+    Router.register('#/admin/students',  pageAdminStudents,  ['admin']);
+    Router.register('#/admin/import',    pageAdminImport,    ['admin']);
+    Router.register('#/admin/staff',     pageAdminStaff,     ['admin']);
+    Router.register('#/admin/settings',  pageAdminSettings,  ['admin']);
+
+    // ナビバー更新
+    function updateNavBar() {
+      const nav = document.getElementById('nav-user');
+      const btn = document.getElementById('logout-btn');
+      if (Auth.isValid()) {
+        const p = Auth.getPayload();
+        nav.textContent = p.sub || '';
+        nav.classList.remove('hidden');
+        btn.classList.remove('hidden');
+      } else {
+        nav.classList.add('hidden');
+        btn.classList.add('hidden');
+      }
+    }
+
+    window.addEventListener('hashchange', updateNavBar);
+    updateNavBar();
+
+    // ダッシュボードページを離れたらタイマーをクリア
+    window.addEventListener('hashchange', () => {
+      if (!window.location.hash.startsWith('#/admin')) {
+        if (typeof dashboardTimer !== 'undefined' && dashboardTimer) {
+          clearInterval(dashboardTimer); dashboardTimer = null;
+        }
+        if (typeof chartInstance !== 'undefined' && chartInstance) {
+          chartInstance.destroy(); chartInstance = null;
+        }
+      }
+      if (!window.location.hash.startsWith('#/staff')) {
+        if (typeof offlineTimer !== 'undefined' && offlineTimer) {
+          clearInterval(offlineTimer); offlineTimer = null;
+        }
+        window.removeEventListener('online',  onOnline);
+        window.removeEventListener('offline', onOffline);
+      }
+    });
+
+    Router.init();
+  </script>
+</body>
+</html>
