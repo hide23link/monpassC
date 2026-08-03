@@ -166,12 +166,17 @@ function ticketCard(t) {
         ${canvasEl}
         <div class="flex-1 min-w-0">
           <p class="font-semibold ${invalid ? 'text-gray-400 line-through' : 'text-gray-800'} truncate">${escHtml(t.guest_name)}</p>
+          <p class="text-xs text-gray-500">発行者: ${escHtml(t.student_name || '')}</p>
           <p class="text-xs text-gray-500 mb-1">発行: ${formatDate(t.created_at)}</p>
           <div class="mb-2">${statusBadge}</div>
           <div class="flex gap-2 flex-wrap">
             ${!invalid ? `<button onclick="saveQr('${t.ticket_id}')"
               class="text-sky-600 hover:text-sky-800 text-sm border border-sky-300 hover:border-sky-500 px-2 py-0.5 rounded transition">
               画像を保存
+            </button>` : ''}
+            ${!invalid && canUseWebShare() ? `<button onclick="shareQr('${t.ticket_id}')"
+              class="text-sky-600 hover:text-sky-800 text-sm border border-sky-300 hover:border-sky-500 px-2 py-0.5 rounded transition">
+              共有
             </button>` : ''}
             ${deleteBtn}
           </div>
@@ -290,7 +295,15 @@ async function buildTicketPng(t) {
 
   ctx.drawImage(qrCanvas, 0, headerH);
 
-  return canvas.toDataURL('image/png');
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+function sanitizeFilename(s) {
+  return String(s).replace(/[\\/:*?"<>|\s]/g, '_');
+}
+
+function canUseWebShare() {
+  return typeof navigator.share === 'function';
 }
 
 async function saveQr(ticketId) {
@@ -298,17 +311,49 @@ async function saveQr(ticketId) {
   if (!t) return;
 
   try {
-    const dataUrl = await buildTicketPng(t);
-    // ファイル名に使えない文字を除去
-    const sanitize = s => String(s).replace(/[\\/:*?"<>|\s]/g, '_');
-    const filename = `QR_${sanitize(t.guest_name)}.png`;
+    const blob = await buildTicketPng(t);
+    const filename = `QR_${sanitizeFilename(t.guest_name)}.png`;
 
+    // blob: URL の方が data: URL より iPhone Safari での <a download> 挙動が安定しやすい。
+    // それでも確実なのは共有ボタン(navigator.share)経由での保存。
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataUrl;
+    a.href = url;
     a.download = filename;
     a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   } catch (e) {
     showToast('QR画像の生成に失敗しました', 'error');
+  }
+}
+
+async function shareQr(ticketId) {
+  const t = currentTickets.find(x => x.ticket_id === ticketId);
+  if (!t) return;
+
+  try {
+    const blob = await buildTicketPng(t);
+    const filename = `QR_${sanitizeFilename(t.guest_name)}.png`;
+    const file = new File([blob], filename, { type: 'image/png' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: '学園祭入場チケット',
+        text: `${t.guest_name}様の入場QRチケットです`,
+      });
+    } else if (navigator.share) {
+      // 一部端末は share() は使えるが files 共有には未対応
+      await navigator.share({
+        title: '学園祭入場チケット',
+        text: `${t.guest_name}様の入場QRチケットです`,
+      });
+    } else {
+      showToast('この端末では共有機能が使えません', 'error');
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return; // 共有シートをキャンセルした場合は何もしない
+    showToast('共有に失敗しました', 'error');
   }
 }
 

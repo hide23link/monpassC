@@ -5,6 +5,7 @@ import { getConfig } from "../lib/config";
 import { getIssuePeriod, todayIso } from "../lib/settings";
 import { tokenUrlsafe } from "../lib/ids";
 import { htmlEscape } from "../lib/html";
+import { getEntryStatus } from "../lib/entry-stats";
 
 // Ports main.py's `/ticket/*` routes (main.py:584-797).
 // PLAN.md section 4: no qr_image/qr_url/qr_content in any response here —
@@ -121,6 +122,7 @@ ticketRoutes.delete("/:ticket_id", requireStudentOrPromoted, async (c) => {
 ticketRoutes.post("/scan", requireStaffOrAdmin, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const ticketId = typeof body.ticket_id === "string" ? body.ticket_id : "";
+  const scannedBy = c.get("payload").sub;
   const db = c.env.DB;
   const usedAt = new Date().toISOString();
 
@@ -128,9 +130,14 @@ ticketRoutes.post("/scan", requireStaffOrAdmin, async (c) => {
   // (main.py:699-721) — see PLAN.md section 3. A single UPDATE that only
   // succeeds when the row is still is_valid=1 AND used=0 gives the same
   // "exactly one scan wins" guarantee under concurrent requests.
+  // scanned_by is not in main.py (added post-migration for the "自分の
+  // スキャン履歴" staff feature) — records which staff/admin/promoted
+  // student performed the scan.
   const result = await db
-    .prepare("UPDATE tickets SET used = 1, used_at = ? WHERE id = ? AND is_valid = 1 AND used = 0")
-    .bind(usedAt, ticketId)
+    .prepare(
+      "UPDATE tickets SET used = 1, used_at = ?, scanned_by = ? WHERE id = ? AND is_valid = 1 AND used = 0",
+    )
+    .bind(usedAt, scannedBy, ticketId)
     .run();
 
   if (result.meta.changes === 1) {
@@ -163,10 +170,45 @@ ticketRoutes.post("/scan/:ticket_id/cancel", requireStaffOrAdmin, async (c) => {
   if (row === null) return c.json({ detail: "チケットが見つかりません" }, 404);
 
   await db
-    .prepare("UPDATE tickets SET used = 0, used_at = NULL WHERE id = ?")
+    .prepare("UPDATE tickets SET used = 0, used_at = NULL, scanned_by = NULL WHERE id = ?")
     .bind(ticketId)
     .run();
   return c.json({ message: "入場取消しました" });
+});
+
+// Added post-migration (not in main.py) so staff — not just admins — can see
+// current attendance status and their own scan history, per user request:
+// "スタッフモードでは、自分が来場をチェックしたデータが見れるように...
+// 他の管理者と同様に、現在の来場状況も見えるように".
+
+ticketRoutes.get("/status", requireStaffOrAdmin, async (c) => {
+  const { totalEntries, unusedCount, graphData } = await getEntryStatus(c.env.DB);
+  return c.json({
+    total_entries: totalEntries,
+    unused_count: unusedCount,
+    graph_data: graphData,
+  });
+});
+
+type MyScanRow = {
+  ticket_id: string;
+  guest_name: string;
+  student_name: string;
+  used_at: string;
+};
+
+ticketRoutes.get("/my-scans", requireStaffOrAdmin, async (c) => {
+  const scannedBy = c.get("payload").sub;
+  const rows = await c.env.DB.prepare(
+    `SELECT t.id as ticket_id, t.guest_name, s.name as student_name, t.used_at
+     FROM tickets t JOIN students s ON t.student_id = s.id
+     WHERE t.scanned_by = ? AND t.used = 1
+     ORDER BY t.used_at DESC
+     LIMIT 100`,
+  )
+    .bind(scannedBy)
+    .all<MyScanRow>();
+  return c.json(rows.results);
 });
 
 ticketRoutes.get("/cache", requireStaffOrAdmin, async (c) => {
@@ -193,6 +235,7 @@ type OfflineScanItem = { ticket_id: string; scanned_at: string; session_id: stri
 
 ticketRoutes.post("/sync", requireStaffOrAdmin, async (c) => {
   const items = (await c.req.json().catch(() => [])) as OfflineScanItem[];
+  const scannedBy = c.get("payload").sub;
   const db = c.env.DB;
   const results: Array<Record<string, unknown>> = [];
 
@@ -203,9 +246,11 @@ ticketRoutes.post("/sync", requireStaffOrAdmin, async (c) => {
     // does a plain read-then-write with no BEGIN IMMEDIATE (unlike /ticket/scan)
     // — see PLAN.md section 3. Note: unlike /ticket/scan, the original sync
     // logic never checked is_valid, only used — preserved here as-is.
+    // scanned_by: the whole batch belongs to the one staff device that is
+    // syncing it (authenticated by this request's JWT).
     const result = await db
-      .prepare("UPDATE tickets SET used = 1, used_at = ? WHERE id = ? AND used = 0")
-      .bind(item.scanned_at, item.ticket_id)
+      .prepare("UPDATE tickets SET used = 1, used_at = ?, scanned_by = ? WHERE id = ? AND used = 0")
+      .bind(item.scanned_at, scannedBy, item.ticket_id)
       .run();
 
     if (result.meta.changes === 1) {

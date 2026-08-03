@@ -110,7 +110,7 @@
 ### Vitestテストスイート
 - `vitest.config.ts` + `@cloudflare/vitest-pool-workers`(Miniflare上のD1で実行)をセットアップ
 - `test/helpers.ts`(生徒/スタッフseed、ログイン、認証付きfetchのヘルパー)、`test/env.d.ts`(ProvidedEnv型)、`test/apply-migrations.ts`(D1マイグレーション自動適用)
-- `test/auth.test.ts`(7件)・`test/ticket.test.ts`(9件、**10並列スキャンで1件のみ成功する回帰テスト含む**)・`test/promote.test.ts`(2件)・`test/admin.test.ts`(8件、UTF-8/Shift_JIS CSVインポート・FK連鎖削除の回帰テスト含む) — **計26件、全て成功**
+- `test/auth.test.ts`・`test/ticket.test.ts`(**10並列スキャンで1件のみ成功する回帰テスト含む**)・`test/promote.test.ts`・`test/admin.test.ts`(UTF-8/Shift_JIS CSVインポート・FK連鎖削除の回帰テスト含む) — 初期実装時点で計26件、全て成功(その後56件まで拡充。詳細は下記「テストケースの大幅拡充」参照)
 - **発見・修正した設定不整合**: `@cloudflare/vitest-pool-workers`は内部に古いwrangler(3.109.1)をバンドルしており、`run_worker_first`の配列指定(新しいwrangler 4系の機能)をパースできずテストが起動不能だった。`run_worker_first: true`(bool)に戻し、`src/index.ts`に明示的な`ASSETS`フォールバックルート(`app.get("*", c => c.env.ASSETS.fetch(c.req.raw))`)を追加する形に変更(本番デプロイ・staging両方で再検証し問題ないことを確認済み)
 - **発見・修正した別の不整合**: `encoding-japanese`のデフォルトエントリ(`src/index.js`)は`require('../package.json')`を実行するが、vitest-pool-workersのworkerdベースモジュールローダーではこれが解決できずテストがクラッシュしていた(wranglerの実デプロイでは問題なし)。自己完結型のバンドル版(`encoding-japanese/encoding.js`)に切り替えて解決(型定義はアンビエント宣言`src/lib/encoding-japanese-bundle.d.ts`で補完)
 
@@ -128,11 +128,53 @@
 - **発見した実行時の不整合**: `cloudflare:test`型・`__dirname`(ESMでは未定義)・vitestが`e2e/*.spec.ts`を誤って拾う問題、をそれぞれ修正
 - **発見した並列実行時のflaky挙動**: 5並列で実行すると、単一の`wrangler dev`インスタンス+外部CDN(qrcodeライブラリ)への同時アクセスが原因と見られるタイムアウトが低頻度で発生。`workers: 3`に制限し、ダッシュボードの初期値("-")待ちを`waitForFunction`で確実に待つよう修正して安定化
 
+### Cloudflare Access設定(`/admin/*`保護)
+- Cloudflare APIトークン(`api.txt`内、ラベル`claudflare`)に`Account / Access: Apps and Policies / Edit`権限を追加してもらい、それを使ってAccess Application + Policyを作成
+  - Application: `MONpass Admin API`、保護対象ドメイン `monpass.hide23.link/admin`(PLAN.md §5の設計どおり、`/admin/*` APIルートのみ。SPAのUI「殻」自体は対象外という既知の制約はそのまま)
+  - App ID: `5bc2d5b4-0c56-4a14-95ab-f4258d326990`
+  - Policy: `Admins`、Allow、email = `hayahide23@gmail.com`(1名のみ、後で追加予定とのこと)
+  - ログイン方式はデフォルトのOne-time PIN(メール)
+- **動作確認済み**: `/admin/dashboard`・`/admin/students`は未認証だと302で`hide23.cloudflareaccess.com`のログイン画面へリダイレクトされる。`/health`・`/ticket/list`・`/promote/list`(既知の制約どおり`/admin/`配下でないため未保護)はAccessの影響を受けず従来どおりアプリ側の401が返ることを確認
+- デプロイ直後は数十秒程度Access設定の伝播待ちがあり、その間302と401が混在する現象を確認(Workersのデプロイ反映と同様の既知の遅延)。安定後は5回連続で302を確認済み
+- Access自体はメールアドレスのみで50ユーザーまで無料(コスト試算どおり)
+- 管理者パスワードをユーザー希望により`penpen999`に変更(本番D1、直接UPDATE)
+- **判明した実運用上の注意点**: このSPAはハッシュルーティングのため、ブラウザが実際にアクセスするのは常に`GET /`のみ。Access保護下の`/admin/*`へは管理画面のJSがバックグラウンドでfetchするが、未認証時はAccessが別オリジン(`hide23.cloudflareaccess.com`)へリダイレクトしようとし、これがCORSで弾かれて`fetch()`が失敗する(ブラウザに「Failed to fetch」と表示される)。**回避策**: 初回のみ`https://monpass.hide23.link/admin/dashboard`のようなURLに直接アクセスしてCloudflare Accessのワンタイムパスコード認証を完了させ、Cookie(有効期限24時間)を発行させる必要がある。これはPLAN.md §5で指摘していた既知の制約(ハッシュルーターとAccessパスマッチングの不整合)が実際に問題として表面化したもの。恒久対応は未着手
+
+### スタッフ向け機能追加(ユーザー要望)
+要望: 「スタッフモードで自分がチェックした来場データを見れるように」「他の管理者と同様に現在の来場状況も見えるように」
+- `migrations/0002_scanned_by.sql` — `tickets`テーブルに`scanned_by`カラム追加(誰がスキャンしたかを記録。main.pyには無かった情報)。4環境すべてに適用済み
+- `src/lib/entry-stats.ts` — `/admin/dashboard`と新エンドポイントで共通の集計ロジック(`getEntryStatus`)を切り出し、`admin.ts`もこちらを使うようリファクタ
+- `src/routes/ticket.ts` — `/ticket/scan`・`/ticket/sync`が`scanned_by`を記録するよう変更(キャンセル時はNULLに戻す)。新規ルート`GET /ticket/status`(現在の入場済み/未入場件数・30分刻みグラフデータ、admin/dashboardと同じ集計)と`GET /ticket/my-scans`(自分がスキャンしたチケット一覧、最大100件)を追加。どちらも`requireStaffOrAdmin`(Access非対象、通常のスタッフログインのみで利用可能)
+- `public/static/js/pages/staff-scan.js` — スキャン画面に「現在の来場状況」カードと「自分がチェックした来場者」リスト(サーバー保存、再読込しても残る)を追加。スキャン成功時・オフライン同期後・60秒ごとのポーリングで更新
+- **動作確認済み**: Vitestに新規テスト追加(スタッフAがスキャン→自分の`/ticket/my-scans`には出るがスタッフBには出ないことを確認)、ローカル実機・staging・本番すべてでエンドツーエンド確認、本番デプロイ済み
+
+### QRチケットカードの改善(ユーザー要望)
+- 共有ボタン追加: `navigator.share()`(Web Share API)対応端末でチケットカードに「共有」ボタンを表示。ネイティブ共有シート経由で画像保存・LINE等への送信が可能に(`canUseWebShare()`で機能検出)
+- 「画像を保存」ボタンを`data:` URLから`blob:` URL方式に変更(iPhone Safariでの`<a download>`の安定性向上のため)
+- **発見・修正したバグ**: クライアント側QR描画への移行時、元のアプリがQR画像に焼き込んでいた「発行者：{生徒名}」のテキスト表示を、カードのDOM要素に移し忘れていた(QR保存用画像の合成には残っていたが、画面上のカードには表示されていなかった)。カードに「発行者: {名前}」を追加して修正
+- staging・本番にデプロイ・配信確認済み
+
+### PWA対応(ホーム画面に追加)
+- `public/manifest.webmanifest` — アプリ名・アイコン・`display: standalone`等を定義
+- アイコン: `sips`(macOS標準ツール)でSVG→PNGに変換して生成(192/512/512maskable/apple-touch-icon)。QRコード風のシンプルな図柄、テーマカラー(#0ea5e9)背景。デザインにこだわりなしとのことでシンプルなもので確定
+- `public/sw.js` — 最小限のService Worker(実際のキャッシュ処理はなし、fetchハンドラの登録のみ)。Android/ChromeがインストールプロンプトはService Worker登録を要件とするため追加。オフライン対応は既存のIndexedDB方式のまま変更なし
+- `index.html`にマニフェスト・iOS用meta タグ(`apple-mobile-web-app-capable`等)・Service Worker登録スクリプトを追加
+- staging・本番で配信確認済み(manifest/アイコン/sw.js すべて200)
+
+### テストケースの大幅拡充(ユーザー要望「全体的にデータのやり取りをテストケースを作成してテストしてほしい」)
+Vitestを**27件→56件**に倍増。全ルートのリクエスト/レスポンスのデータ整合性を網羅:
+- `test/auth.test.ts`(7→11件): 改ざんJWT拒否・別シークレットで署名されたトークン拒否・ロールミスマッチ(生徒がスタッフ専用ルートへ/スタッフが管理者専用ルートへ)の403確認を追加
+- `test/ticket.test.ts`(9→19件): `student_id`不一致時の403・空招待者名の400・`GET /ticket/list`のフィールド整合性・`DELETE /ticket/:id`(成功/他人のチケット403/入場済み400/404)・無効化チケットのスキャン400・`/ticket/cache?since=`の差分取得を追加
+- `test/admin.test.ts`(8→22件): 生徒の単体取得/404/更新(名前・クラス・パスワード、更新後に新パスワードでログインできることまで確認)・パスワード短すぎエラー・生徒削除、チケットの一覧フィルタ(student_name/status)・単体取得/更新(used_atのクリアも確認)/削除・存在しない生徒への発行404・管理者作成チケットの上限バイパス確認、スタッフCRUD(作成/重複409/削除/CSVエクスポートにパスワード非掲載であることを確認/CSVインポートのヘッダー判定とロール振り分け)、チケット全体CSVエクスポートの内容確認、を追加
+- `test/promote.test.ts`(2→4件): 非昇格の一般生徒による承認試行の403(「昇格承認権限がありません」)・`/promote/list`が管理者以外は403であることを追加
+- **全56件・Playwright E2E 43件とも成功を確認**(リグレッションなし)
+
 ## 未着手・次のステップ
 
-- [ ] `/Users/hide/MONpass/data/gakuensai.db` からのデータ移行(現状はdev用小規模データ、実データの所在確認が必要)
-- [ ] Cloudflare Access の `/admin/*` 保護設定(Cloudflare側・ユーザー作業、メールリストの準備が必要)
+- [ ] `/Users/hide/MONpass/data/gakuensai.db` からのデータ移行 — **仕組みは完成済み**(管理画面のCSVインポート機能で対応可能、UTF-8/Shift_JIS両対応を検証済み)。実データが揃い次第ユーザー自身がインポートする方針
+- [ ] Cloudflare Accessへの管理者メールアドレス追加(現在1名のみ、増やす場合はダッシュボードまたはAPIでPolicyの`include`に追加)
+- [ ] `/promote/list`を`/admin/promotions/list`等へ移動するか、Accessの保護対象パスに個別追加する(PLAN.md §5で指摘した既知のギャップ、現状は未対応のまま)
+- [ ] 管理画面初回アクセス時の「Failed to fetch」対策(現状は`/admin/dashboard`等への直接アクセスで回避可能だが、恒久対応(例: SPA側でAccess未認証を検知して案内する、保護パス設計の見直し等)は未着手)
 - [ ] Playwright E2E: 未移植の`test_fe07`(admin-tickets)以降・`test_fe08_to_14`・`test_fe15_new_features`・`test_fe17_qr_csv`(細かいUIケース、必要になったら追加)
-- [ ] Vitest: `test_tc03`(QR発行の詳細)・`test_tc06`(admin)・`test_tc08`(offline)等、未カバーな細かいテストケースの追加(現状は主要フローの26件のみ)
 
 詳細な設計判断・リスクは [`PLAN.md`](./PLAN.md) を参照。

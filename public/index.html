@@ -4,6 +4,15 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>学園祭入場システム（仮）</title>
+
+  <!-- PWA: ホーム画面に追加して単独アプリのように起動できるようにする -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0ea5e9">
+  <link rel="icon" href="/static/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="MONpass">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -123,6 +132,13 @@
     });
 
     Router.init();
+
+    // PWAとして「ホーム画面に追加」できるようにする最小のService Worker登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>
