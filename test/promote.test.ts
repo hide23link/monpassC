@@ -55,4 +55,30 @@ describe("promotion flow (/promote/*)", () => {
     const body = (await res.json()) as { detail: string };
     expect(body.detail).toBe("無効な昇格トークンです");
   });
+
+  it("rejects an approval attempt from a plain (non-promoted) student with the promote-specific message", async () => {
+    const requester = await seedStudent({ id: "requester" });
+    const requesterToken = await loginStudent(requester.id, requester.password);
+    const bystander = await seedStudent({ id: "bystander" });
+    const bystanderToken = await loginStudent(bystander.id, bystander.password);
+
+    const requestRes = await authedFetch("/promote/request", requesterToken, jsonInit({}, "POST"));
+    const { promote_token: promoteToken } = (await requestRes.json()) as { promote_token: string };
+
+    const res = await authedFetch(
+      "/promote/approve",
+      bystanderToken,
+      jsonInit({ promote_token: promoteToken }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { detail: string };
+    expect(body.detail).toBe("昇格承認権限がありません");
+  });
+
+  it("/promote/list is admin-only (a plain staff account is rejected)", async () => {
+    const staff = await seedStaff({ role: "staff" });
+    const staffToken = await loginStaff(staff.id, staff.password);
+    const res = await authedFetch("/promote/list", staffToken);
+    expect(res.status).toBe(403);
+  });
 });

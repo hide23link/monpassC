@@ -5,6 +5,7 @@ import { requireAdmin } from "../middleware/auth";
 import { tokenUrlsafe } from "../lib/ids";
 import { generateAlnumPassword } from "../lib/password";
 import { decodeCsvBytes, parseCsv, csvResponse } from "../lib/csv";
+import { getEntryStatus } from "../lib/entry-stats";
 
 // Ports main.py's `/admin/*` routes (main.py:801-1322). All routes require
 // an admin-role JWT (requireAdmin, wired below) — Cloudflare Access sits in
@@ -16,39 +17,9 @@ adminRoutes.use("*", requireAdmin);
 
 // ─── ダッシュボード ──────────────────────────────────────────────────────
 
-function bucketKey(usedAt: string): string | null {
-  const d = new Date(usedAt);
-  if (Number.isNaN(d.getTime())) return null;
-  const hh = String(d.getUTCHours()).padStart(2, "0");
-  const mm = d.getUTCMinutes() >= 30 ? "30" : "00";
-  return `${hh}:${mm}`;
-}
-
 adminRoutes.get("/dashboard", async (c) => {
   const db = c.env.DB;
-
-  const totalEntries =
-    (
-      await db.prepare("SELECT COUNT(*) as cnt FROM tickets WHERE used = 1").first<{
-        cnt: number;
-      }>()
-    )?.cnt ?? 0;
-  const unusedCount =
-    (
-      await db
-        .prepare("SELECT COUNT(*) as cnt FROM tickets WHERE used = 0 AND is_valid = 1")
-        .first<{ cnt: number }>()
-    )?.cnt ?? 0;
-
-  const usedAtRows = await db
-    .prepare("SELECT used_at FROM tickets WHERE used = 1 AND used_at IS NOT NULL")
-    .all<{ used_at: string }>();
-  const graphData: Record<string, number> = {};
-  for (const row of usedAtRows.results) {
-    const key = bucketKey(row.used_at);
-    if (key === null) continue;
-    graphData[key] = (graphData[key] ?? 0) + 1;
-  }
+  const { totalEntries, unusedCount, graphData } = await getEntryStatus(db);
 
   const studentRows = await db
     .prepare(

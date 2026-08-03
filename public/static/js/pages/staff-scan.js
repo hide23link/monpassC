@@ -46,29 +46,95 @@ async function pageStaffScan() {
       </div>
 
       <!-- 直近スキャン履歴 -->
-      <div class="bg-white rounded-2xl shadow p-4">
+      <div class="bg-white rounded-2xl shadow p-4 mb-4">
         <h3 class="text-sm font-semibold text-gray-600 mb-3">直近のスキャン</h3>
         <div id="scan-history" class="space-y-2 text-sm text-gray-500">
           <p class="text-xs">スキャン結果がここに表示されます</p>
+        </div>
+      </div>
+
+      <!-- 現在の来場状況（管理者と同じ集計を閲覧可能） -->
+      <div class="bg-white rounded-2xl shadow p-4 mb-4">
+        <h3 class="text-sm font-semibold text-gray-600 mb-3">現在の来場状況</h3>
+        <div class="grid grid-cols-2 gap-3 text-center">
+          <div class="bg-sky-50 rounded-lg p-3">
+            <p id="status-total" class="text-2xl font-bold text-sky-600">-</p>
+            <p class="text-xs text-gray-500 mt-1">入場済み</p>
+          </div>
+          <div class="bg-amber-50 rounded-lg p-3">
+            <p id="status-unused" class="text-2xl font-bold text-amber-500">-</p>
+            <p class="text-xs text-gray-500 mt-1">未入場</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 自分がチェックした来場データ（サーバー保存・再読込しても残る） -->
+      <div class="bg-white rounded-2xl shadow p-4">
+        <h3 class="text-sm font-semibold text-gray-600 mb-3">自分がチェックした来場者</h3>
+        <div id="my-scans-list" class="space-y-2 text-sm text-gray-500 max-h-64 overflow-y-auto">
+          <p class="text-xs">読込中...</p>
         </div>
       </div>
     </div>`;
 
   // キャッシュ取得
   await fetchCache();
+  await loadStatus();
+  await loadMyScans();
 
   // オフライン監視
   window.addEventListener('online',  onOnline);
   window.addEventListener('offline', onOffline);
   updateOnlineIndicator();
 
-  // 60秒ごとに差分更新
+  // 60秒ごとに差分更新（他のスタッフの入場チェックも反映されるよう現在状況も更新）
   offlineTimer = setInterval(async () => {
-    if (navigator.onLine) await fetchCache(cacheTimestamp);
+    if (navigator.onLine) {
+      await fetchCache(cacheTimestamp);
+      await loadStatus();
+    }
   }, 60000);
 
   // QRスキャナ起動
   startScanner();
+}
+
+async function loadStatus() {
+  try {
+    const status = await API.get('/ticket/status');
+    const totalEl  = document.getElementById('status-total');
+    const unusedEl = document.getElementById('status-unused');
+    if (totalEl)  totalEl.textContent  = status.total_entries;
+    if (unusedEl) unusedEl.textContent = status.unused_count;
+  } catch (_) {}
+}
+
+async function loadMyScans() {
+  try {
+    const scans = await API.get('/ticket/my-scans');
+    const el = document.getElementById('my-scans-list');
+    if (!el) return;
+    if (!scans || scans.length === 0) {
+      el.innerHTML = '<p class="text-xs text-gray-400">まだ入場チェックしていません</p>';
+      return;
+    }
+    el.innerHTML = scans.map(s => `
+      <div class="flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0">
+        <span class="text-gray-700 truncate">${escHtml(s.guest_name)}
+          <span class="text-gray-400 text-xs">(${escHtml(s.student_name)})</span>
+        </span>
+        <span class="text-gray-400 text-xs whitespace-nowrap ml-2">${formatScanTime(s.used_at)}</span>
+      </div>`).join('');
+  } catch (_) {}
+}
+
+function formatScanTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+  } catch (_) {
+    return iso;
+  }
 }
 
 async function fetchCache(since = null) {
@@ -107,6 +173,8 @@ async function onScanSuccess(decodedText) {
       const guestName = res.guest_name || '';
       showScanResult('ok', `入場OK ${guestName}`, ticketId);
       addHistory({ ticketId, status: 'ok', label: `✅ 入場OK`, time: new Date() });
+      loadStatus();
+      loadMyScans();
     } catch (e) {
       const msg = e.message || '';
       if (msg.includes('入場済み') || msg.includes('already')) {
@@ -228,6 +296,8 @@ async function syncOfflineQueue() {
     showToast('同期しました', 'success');
     const btn = document.getElementById('sync-btn');
     if (btn) btn.classList.add('hidden');
+    await loadStatus();
+    await loadMyScans();
   } catch (e) {
     showToast(e.message, 'error');
   }
