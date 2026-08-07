@@ -38,31 +38,6 @@
     "LOGIN_MAX_FAILURES": "10",
     "LOGIN_LOCKOUT_MINUTES": "30",
     "MAX_TICKETS": "5"
-  },
-
-  "env": {
-    "staging": {
-      "name": "monpassc-staging",
-      "routes": [
-        { "pattern": "monpass-staging.hide23.link", "custom_domain": true }
-      ],
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "monpass-db-staging",
-          "database_id": "419d2129-0d04-4f09-9a34-5a82094351f5",
-          "migrations_dir": "migrations"
-        }
-      ],
-      "vars": {
-        "DOMAIN": "monpass-staging.hide23.link",
-        "ISSUE_START_DATE": "2000-01-01",
-        "ISSUE_END_DATE": "2099-12-31",
-        "LOGIN_MAX_FAILURES": "10",
-        "LOGIN_LOCKOUT_MINUTES": "30",
-        "MAX_TICKETS": "5"
-      }
-    }
   }
 
   // secrets (set via `wrangler secret put`, not committed):
