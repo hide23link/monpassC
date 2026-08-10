@@ -29,7 +29,7 @@
 
 ### 環境構築
 - `npm install` 完了
-- `wrangler login` でCloudflareアカウント(hayahide23@gmail.com)にOAuth認証済み
+- `wrangler login` でCloudflareアカウント(管理者メールアドレス・非公開)にOAuth認証済み
 - `wrangler@4` + `@cloudflare/workers-types@5` にアップグレード(`run_worker_first`の配列指定に旧v3が非対応だったため)
 
 ### D1データベース作成・スキーマ適用
@@ -132,7 +132,7 @@
 - Cloudflare APIトークン(`api.txt`内、ラベル`claudflare`)に`Account / Access: Apps and Policies / Edit`権限を追加してもらい、それを使ってAccess Application + Policyを作成
   - Application: `MONpass Admin API`、保護対象ドメイン `monpass.hide23.link/admin`(PLAN.md §5の設計どおり、`/admin/*` APIルートのみ。SPAのUI「殻」自体は対象外という既知の制約はそのまま)
   - App ID: `5bc2d5b4-0c56-4a14-95ab-f4258d326990`
-  - Policy: `Admins`、Allow、email = `hayahide23@gmail.com`(1名のみ、後で追加予定とのこと)
+  - Policy: `Admins`、Allow、email = (管理者メールアドレス・非公開、1名のみ、後で追加予定とのこと)
   - ログイン方式はデフォルトのOne-time PIN(メール)
 - **動作確認済み**: `/admin/dashboard`・`/admin/students`は未認証だと302で`hide23.cloudflareaccess.com`のログイン画面へリダイレクトされる。`/health`・`/ticket/list`・`/promote/list`(既知の制約どおり`/admin/`配下でないため未保護)はAccessの影響を受けず従来どおりアプリ側の401が返ることを確認
 - デプロイ直後は数十秒程度Access設定の伝播待ちがあり、その間302と401が混在する現象を確認(Workersのデプロイ反映と同様の既知の遅延)。安定後は5回連続で302を確認済み

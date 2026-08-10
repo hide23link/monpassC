@@ -4,7 +4,7 @@
 本書は完成時点での仕様を記述する参照ドキュメント。移行の経緯・意思決定の背景は [`PLAN.md`](./PLAN.md)、実装の進行ログは [`PROGRESS.md`](./PROGRESS.md) を参照。
 
 - 本番URL: `https://monpass.hide23.link`
-- Cloudflareアカウント: `hayahide23@gmail.com`
+- Cloudflareアカウント: `<Cloudflareアカウントのメールアドレス・非公開>`
 
 ---
 
