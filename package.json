@@ -4,13 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "update": "bash scripts/deploy.sh",
+    "create-admin": "node scripts/create-admin.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:migrate:local": "wrangler d1 migrations apply monpass-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply monpass-db --remote",
+    "db:migrate:local": "wrangler d1 migrations apply $(node scripts/db-name.mjs) --local",
+    "db:migrate:remote": "wrangler d1 migrations apply $(node scripts/db-name.mjs) --remote",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit && tsc -p e2e/tsconfig.json --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:e2e": "tsc -p e2e/tsconfig.json --noEmit"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
