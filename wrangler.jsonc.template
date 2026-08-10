@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "monpassc",
+  "name": "__WORKER_NAME__",
   "main": "src/index.ts",
   "compatibility_date": "2024-11-01",
   "compatibility_flags": ["nodejs_compat"],
@@ -17,31 +17,25 @@
     // route non-API paths to assets automatically.
     "run_worker_first": true
   },
-
-  "routes": [
-    { "pattern": "monpass.hide23.link", "custom_domain": true }
-  ],
-
+__ROUTES_BLOCK__
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "monpass-db",
-      "database_id": "c5e14a76-691a-45f6-8406-453c1312678b",
+      "database_name": "__DB_NAME__",
+      "database_id": "__DB_ID__",
       "migrations_dir": "migrations"
     }
   ],
 
   "vars": {
-    "DOMAIN": "monpass.hide23.link",
+    "DOMAIN": "__DOMAIN_VALUE__",
     "ISSUE_START_DATE": "2000-01-01",
     "ISSUE_END_DATE": "2099-12-31",
     "LOGIN_MAX_FAILURES": "10",
     "LOGIN_LOCKOUT_MINUTES": "30",
-    "MAX_TICKETS": "5"
+    "MAX_TICKETS": "__MAX_TICKETS__"
   }
 
   // secrets (set via `wrangler secret put`, not committed):
   //   JWT_SECRET
-  //   ADMIN_ID
-  //   ADMIN_PASSWORD
 }

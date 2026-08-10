@@ -8,3 +8,8 @@ playwright-report/
 blob-report/
 .DS_Store
 PRIVATE_NOTES.md
+PRESENTATION.html
+PRESENTATION.pdf
+/test/
+/e2e/
+/wrangler.jsonc
