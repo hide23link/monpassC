@@ -8,6 +8,8 @@ playwright-report/
 blob-report/
 .DS_Store
 PRIVATE_NOTES.md
+PLAN.md
+PROGRESS.md
 PRESENTATION.html
 PRESENTATION.pdf
 /test/
