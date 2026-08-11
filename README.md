@@ -2,9 +2,7 @@
 
 学園祭入場管理システム。Cloudflare Workers + Hono + D1 上で完結して稼働する。生徒が入場QRチケットを自分で発行し、会場入口でスタッフ・管理者がQRをスキャンして入場処理を行う。想定規模は生徒約1000名・チケット最大6000枚程度。
 
-単一のCloudflare Workersプロジェクトが API と静的アセットの両方を同一オリジンで配信する(Cloudflare Pagesは不使用、CORS設定は不要)。移行元は `/Users/hide/MONpass`(FastAPI + SQLite、非公開リポジトリ、以下「旧Python版」)。
-
-このドキュメントは元々 `SPEC.md`(仕様)/ `PLAN.md`(移行計画・設計判断)/ `PROGRESS.md`(実装ログ)の3ファイルに分かれていたものを1つに統合したもの。
+単一のCloudflare Workersプロジェクトが API と静的アセットの両方を同一オリジンで配信する(Cloudflare Pagesは不使用、CORS設定は不要)。元々はFastAPI + SQLiteの別実装(非公開リポジトリ、以下「旧Python版」)からの移行として作られた。
 
 ## 目次
 
@@ -20,8 +18,6 @@
 - [運用・更新](#運用更新)
 - [テスト(ローカル開発専用)](#テストローカル開発専用)
 - [既知の制約・今後の課題](#既知の制約今後の課題)
-- [設計判断の背景(移行計画)](#設計判断の背景移行計画)
-- [実装ログ](#実装ログ)
 
 ---
 
@@ -205,6 +201,7 @@ monpassC/
 - `test/`, `e2e/`(Vitest/Playwrightのテストコード)
 - `PRESENTATION.html` / `PRESENTATION.pdf`(非技術者向け説明資料)
 - `PRIVATE_NOTES.md`(実際のメールアドレス等、公開できない情報の控え)
+- `PLAN.md` / `PROGRESS.md`(移行計画の設計判断・実装ログ。開発の途中経過であり公開ドキュメントとしては不要なためローカルのみ)
 - `wrangler.jsonc`(forkごとに固有の値が入るため、`setup.sh`実行後にローカルで生成される。コミットするかどうかは運用者の判断に委ねる)
 
 ---
@@ -324,7 +321,7 @@ DB名は `setup.sh` 実行時に自分で決める(このリポジトリの参�
 
 ### 初期管理者アカウントについて(重要)
 
-このアプリには「起動時に管理者アカウントを自動生成する」仕組みがない(旧Python版にはあったが、Workers移行時に廃止した — 経緯は[実装ログ](#実装ログ)参照)。管理者の追加は通常 `/admin/staff` 経由で行うが、**それには既に管理者が1人いる必要がある**。したがって新規デプロイでは最初の1人だけ `scripts/create-admin.mjs` でD1に直接シードする(`setup.sh`が初回構築時に自動で呼ぶ)。2人目以降は管理画面から追加すればよい。
+このアプリには「起動時に管理者アカウントを自動生成する」仕組みがない(旧Python版にはあったが、Workers移行時に廃止した)。管理者の追加は通常 `/admin/staff` 経由で行うが、**それには既に管理者が1人いる必要がある**。したがって新規デプロイでは最初の1人だけ `scripts/create-admin.mjs` でD1に直接シードする(`setup.sh`が初回構築時に自動で呼ぶ)。2人目以降は管理画面から追加すればよい。
 
 ### スタッフ一時昇格フロー
 1. 生徒が「スタッフに切替」→ `POST /promote/request` → `temp_promotions` に未使用トークンを作成、QR(`https://{domain}/promote/approve?token=...`)を`<canvas>`に描画して表示
@@ -374,7 +371,7 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 - 400「無効なチケットです (invalid ticket)」
 - 409「入場済みチケットです (already used)」
 
-同一チケットへの10並列スキャンでも1件のみ200成功・残りは409になることを、Miniflare(ローカルD1)とステージングの実D1の両方で確認済み(ローカルのVitestスイートに回帰テストあり、[テスト](#テストローカル開発専用)参照)。
+同一チケットへの10並列スキャンでも1件のみ200成功・残りは409になることを、Miniflare(ローカルD1)と実際のCloudflare D1の両方で確認済み(ローカルのVitestスイートに回帰テストあり、[テスト](#テストローカル開発専用)参照)。
 
 ### `/promote/*`
 | Method/Path | 認可 | 概要 |
@@ -536,113 +533,3 @@ Vitest(`test/`)・Playwright E2E(`e2e/`)のテストコードはこのMac上に�
 - フロントエンド(`student-qr.js`)の「あと{n}枚発行できます」表示は`5`をハードコードしている。バックエンドの発行上限は`MAX_TICKETS`環境変数で可変のため、この値を変更した場合はフロントエンドの表示が実際の上限とズレる
 - Playwright E2E: 旧Python版E2Eスイートの一部細かいUIケースは移植していない
 
----
-
-## 設計判断の背景(移行計画)
-
-以下は旧Python版からの移行を計画した際の設計判断・リスク検討の記録(`PLAN.md`より統合)。
-
-**確定済みの前提:**
-1. Cloudflare Access(メールOTP・管理者数名)は **`/admin/*` APIルートのみ** を保護する。スタッフ・生徒は既存のID/パスワード+JWTログインのまま(Accessの対象外)。
-2. 既存の生徒/スタッフのbcryptハッシュ済みパスワードは **そのまま引き継ぐ**(強制リセットしない)。
-
-### ターゲットアーキテクチャの選定
-
-| 旧Python版 | 移行先 |
-|---|---|
-| FastAPI(Python) | **Hono**(TypeScript, Workers用ルーターFW) |
-| SQLite | **D1** |
-| `static/` を uvicorn/StaticFiles配信 | **Workers Static Assets** binding(同一Worker) |
-| `app.state.last_import_passwords`(プロセスメモリ、既に多workerで壊れていた) | D1テーブル `last_import_passwords` |
-| cronでのSQLiteバックアップ(外部運用) | D1 Time Travel(30日PITR) |
-| Nginx+uvicorn(VM) | Workers Custom Domain |
-| `.env` | `wrangler secret`(JWT_SECRET等)+ `wrangler.jsonc` の `vars` |
-
-**移行時に修正した旧版のバグ**(そのまま引き継がなかったもの):
-- `.env.example`は`ISSUE_START`/`ISSUE_END`と書いていたが、実際のコードは`ISSUE_START_DATE`/`ISSUE_END_DATE`を読んでいた不整合 → 正しい名前で統一
-- `MAX_TICKETS`は宣言されているが未使用で、5枚上限がハードコードされていた → 実際に効く設定値にした
-- `POST /ticket/sync`は`/ticket/scan`と違い`BEGIN IMMEDIATE`を使っておらず、実は競合状態のバグがあった → 条件付きUPDATEで修正
-
-### QRコード生成の再設計(クライアント側へ移行)
-Cloudflare WorkersはPillowもOSフォントファイル読み込みも実行できないため、最も大きな設計変更が必要だった箇所。QRペイロード内容(`https://<domain>/scan/{ticket_id}`)は変更せず、生成場所をサーバー(Pillow)からクライアント(`qrcode` npmパッケージ、Canvas描画)に移した。「画像として保存」機能も同様にCanvas 2Dでの合成に置き換えた。
-
-### Cloudflare Access統合の方針
-Access(メールベース)は`staff`テーブルの`role`列や監査証跡と直接マッピングできないため、既存のID/パスワード+JWT認証は廃止せず併用する方針にした。また、ローカル開発・テスト(`wrangler dev`/Vitest)ではAccessをシミュレートできないため、アプリ側の認証が独立して動作する必要があった。
-
-現行フロントエンドはハッシュルーター(`#/admin/...`)のため、`#/admin/dashboard`のようなSPA内パスはサーバーには`GET /`としてしか届かず、Accessでは区別できない。そのため、Accessの保護対象は実際のHTTPパスが分離している **`/admin/*` APIルート**にのみ設定している(管理画面のUI「殻」自体は誰でもロードできるが、データ取得APIがAccessでブロックされるため実質的にデータは保護される)。
-
-### `/ticket/scan`の同時実行制御の設計
-旧版は`BEGIN IMMEDIATE`で書き込みロックを取ってから読み書きし、「同時スキャンでも1件のみ成功」を保証していた。D1では明示的なロックAPIがないため、単一のatomicな条件付きUPDATE(`UPDATE tickets SET used=1, used_at=? WHERE id=? AND is_valid=1 AND used=0`)に置き換えた。変更行数(`meta.changes`)で成否判定し、0件なら理由をSELECTで判定してエラーメッセージを返す。Durable Objectsは不要と判断した(D1の行単位アトミック更新で「1台のみ成功」要件を満たせるため)。この設計の妥当性は、実際のD1に対する10並列スキャンで1件のみ成功することを確認して検証済み([実装ログ](#実装ログ)参照)。
-
-### テスト戦略
-バックエンドは旧版のpytestスイートを`Vitest + @cloudflare/vitest-pool-workers`(Miniflare上のD1)へ概念移植。最優先で緑にすべきは「同時スキャンでも1件のみ成功」を担保する並行性テストだった。E2E(Playwright)は`wrangler dev`→デプロイ済み環境へbase URLを差し替えて再利用する方針。
-
-### 切替(カットオーバー)の考え方
-現地イベント(学園祭当日)のゲート運用を支えるシステムのため保守的に進める方針とした: ローカル検証 → ステージングデプロイ+実D1での負荷テスト → データ移行ドライラン → DNS切替 → 旧サーバーは猶予期間(1〜2週間目安)残す。ロールバックは、実データがD1に入る前ならDNS/Custom Domainを旧サーバーへ戻すだけで安全に行える。
-
----
-
-## 実装ログ
-
-旧Python版からの移行作業を通じて発見した実装上の問題・バグとその修正の記録(`PROGRESS.md`より統合、時系列)。今後似た問題(D1固有の制約、wrangler/vitest-pool-workersのバージョン不整合など)に当たったときの参考用。
-
-### プロジェクト scaffold
-`package.json`(Hono, bcryptjs, jose, encoding-japanese, qrcode 等の依存)、`wrangler.jsonc`(D1・静的アセットバインディング)、`migrations/0001_init.sql`(D1スキーマ)、Honoルート骨格、`public/`(旧版の`static/`を`/static/js/...`パス維持のままコピー)を作成した。
-
-### 環境構築で踏んだ問題
-`wrangler@4` + `@cloudflare/workers-types@5`へのアップグレードが必要だった(`run_worker_first`の配列指定に旧v3が非対応だったため)。
-
-### 初期管理者アカウント
-初期管理者アカウント(bcryptjsハッシュ付き)を`staff`テーブルへ直接シードして起点とした。旧`.env.example`の`ADMIN_ID`/`ADMIN_PASSWORD`(起動時自動生成の仕組み)は新実装では使っておらず、この直接シードが唯一の起点になる — これが今回`scripts/create-admin.mjs`として一般化・スクリプト化した部分。
-
-### 認証(`/auth/*`)
-`jose`によるHS256 JWT発行/検証、`login_failures`テーブルによるロックアウト、5種類の認可ミドルウェアを実装。`wrangler dev`+ローカルD1で、ログイン成功/失敗、無トークン401、10回失敗でのロックアウトを動作確認した。
-
-### チケット(`/ticket/*`)
-7ルートすべて実装し、レスポンスから`qr_image`/`qr_url`/`qr_content`を完全に排除(クライアント側描画への移行)。`MAX_TICKETS`を実際に効く設定値として使用(旧版のハードコードバグを修正)。**最重要検証**: 同一チケットに対する5並列スキャンで1件のみ200成功・残り4件409を確認 — 条件付きUPDATEによる並行性保証がローカルMiniflare D1上で機能することを確認した。
-
-### 昇格(`/promote/*`)
-3ルート実装。昇格リクエスト→承認→`promoted:true`のJWT発行→同一トークンの再利用は409で拒否、までを確認。
-
-### QRコードのクライアント側描画
-`qrcode`npmパッケージはブラウザ向けグローバル公開ビルドを持たない(CJS/ESM専用)ため、当初指定していたCDNパス(`/build/qrcode.min.js`)が404だった問題を発見・修正し、jsdelivrの`+esm`変換パスに切り替えた。`student-qr.js`を全面書き換えし、`t.qr_image`(サーバー生成base64 PNG)への依存を排除して`<canvas>`+`QRCode.toCanvas()`によるクライアント側描画に変更した。
-
-### 管理者機能(`/admin/*`)
-22ルートすべて実装。**発見・修正した実バグ**: D1はデフォルトで外部キー制約を強制する(元のSQLiteは`PRAGMA foreign_keys`未設定で実質無効だった)。管理者による使用済みチケットの強制削除・生徒削除(チケット連鎖削除)が`offline_scan_queue`の外部キー制約でエラーになる問題をテスト中に発見し、該当箇所で関連行を先に削除するよう修正した。CSVインポートはUTF-8・Shift_JIS両方で文字化けなくインポートできることを確認した。
-
-### Stagingデプロイでの検証
-**最重要検証**: 実際のCloudflare D1(Miniflareではなく)に対して同一チケットへ10並列スキャンを実行し、1件のみ200成功・残り9件409を確認。条件付きUPDATEによる同時実行制御が本番相当インフラでも機能することを実証した。
-
-### Vitestテストスイートで踏んだ設定不整合
-`@cloudflare/vitest-pool-workers`は内部に古いwrangler(3.109.1)をバンドルしており、`run_worker_first`の配列指定(新しいwrangler 4系の機能)をパースできずテストが起動不能だった問題を発見。`run_worker_first: true`(bool)に戻し、`src/index.ts`に明示的な`ASSETS`フォールバックルートを追加する形に変更した。また、`encoding-japanese`のデフォルトエントリが`require('../package.json')`を実行し、vitest-pool-workersのworkerdベースモジュールローダーで解決できずクラッシュする問題も発見し、自己完結型のバンドル版に切り替えて解決した。
-
-### 本番Custom Domainアタッチ
-本番ドメインを実際にCustom Domainとしてアタッチしデプロイした。デプロイ直後は`ASSETS`バインディングの反映に数秒〜十数秒のタイムラグがあり、その間`/`アクセスが一時的に500(Cloudflare error 1101)になる現象を確認した(時間経過で解消)。
-
-### Playwright E2Eテストスイート
-`wrangler dev`をwebServerとして自動起動する構成で6ファイル・43件を移植。**発見・修正した問題**: `test/`・`e2e/`ディレクトリが`tsconfig.json`の`include`に入っておらず、`tsc --noEmit`が実質何もチェックしていなかった(vitestはesbuildで型チェックなしに実行されるため見た目上テストは通っていた)。Workers向けとブラウザ向けでtsconfigを分離して両方を実際にチェックするよう修正した。5並列実行時に単一の`wrangler dev`インスタンス+外部CDN依存が原因と見られる低頻度のflaky timeoutが発生したため、`workers: 3`に制限して安定化した。
-
-### Cloudflare Access設定
-Access Application(保護対象`<domain>/admin`)+ Policy(Allow、メールOTP)をCloudflare API経由で作成した。**動作確認**: `/admin/*`は未認証だと302でAccessログイン画面へリダイレクトされ、`/health`等の非保護ルートは影響を受けないことを確認。**判明した実運用上の注意点**: ハッシュルーティングのSPAでは、未認証時にAccessが別オリジンへリダイレクトしようとする際にCORSで弾かれ「Failed to fetch」と表示される問題があり、初回のみ管理画面の実パスに直接アクセスしてワンタイムパスコード認証を完了させる回避策が必要(恒久対応は未着手、[既知の制約](#既知の制約今後の課題)参照)。
-
-### スタッフ向け機能追加
-`tickets`テーブルに`scanned_by`カラムを追加(誰がスキャンしたかを記録、旧版には無かった情報)。`GET /ticket/status`・`GET /ticket/my-scans`エンドポイントを新設し、スキャン画面に「現在の来場状況」カードと「自分がチェックした来場者」リストを追加した。
-
-### QRチケットカードの改善
-`navigator.share()`対応端末向けの共有ボタンを追加。「画像を保存」を`data:`URLから`blob:`URL方式に変更(iPhone Safariでの安定性向上)。**発見・修正したバグ**: クライアント側QR描画への移行時、元のアプリがQR画像に焼き込んでいた「発行者:{生徒名}」のテキスト表示をカードのDOM要素に移し忘れていたため追加した。
-
-### PWA対応
-Web App Manifest・アイコン一式・最小限のService Worker(キャッシュ処理なし、インストール可能要件を満たすためだけ)を追加した。
-
-### テストケースの大幅拡充
-Vitestを27件→56件に倍増し、全ルートのリクエスト/レスポンスのデータ整合性を網羅(改ざんJWT拒否、ロールミスマッチの403、CRUD操作の一貫性確認等)。
-
-### QRスキャンの重複判定バグ修正
-**発見・修正したバグ**: `html5-qrcode`はQRコードがカメラに映っている間、成功検出のたびに毎フレーム(fps:10 ≒ 約100ms間隔)コールバックを呼び続ける仕様だった。ロックなしだと1回のかざしで`/ticket/scan`への並列リクエストが複数発生し、最初の1件だけ成功した直後に後続のリクエストが「入場済み」(409)を返して結果表示を上書きしていた(実際は入場成功しているのに画面上は失敗に見える)。検出直後にスキャナーを`pause()`し、1.5秒のクールダウン後に`resume()`するよう修正した。あわせてスキャン結果表示を画面全体のフルスクリーンオーバーレイに変更し、管理画面にチケット一括削除機能を追加した。
-
-### 昇格(スタッフ権限)機能の完成
-**判明した経緯**: `/promote/request`・`/promote/approve`のバックエンドAPI自体は存在していたが、**旧Python版の時点から**QRを読み取って承認するUIが実装されていなかった(移行で壊れたものではなく、以前から未完成だった機能)。スキャン画面に昇格QRの認識機能、新規エンドポイント`GET /promote/status`(承認結果を申請元の生徒端末に届けるためのポーリング用)、管理画面への「QRスキャン」タブ追加を実装して機能を完成させた。
-
----
-
-*旧Python版(`/Users/hide/MONpass`)は本移行の1次ソースとして使用したが、別の非公開リポジトリであり本リポジトリには含まれない。*

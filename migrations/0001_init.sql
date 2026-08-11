@@ -1,4 +1,4 @@
--- MONpass D1 schema (ported from /Users/hide/MONpass/main.py init_db()).
+-- MONpass D1 schema (ported from the old Python (FastAPI + SQLite) version's init_db()).
 -- See PLAN.md section 2 for migration rationale and added indexes.
 
 CREATE TABLE students (
