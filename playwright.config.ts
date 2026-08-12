@@ -8,9 +8,9 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   // Capped rather than the default (CPU count): all tests share one
-  // `wrangler dev` instance (single local D1), and each promote/QR test
-  // fetches the qrcode library fresh from a CDN per browser context — high
-  // parallelism was observed to cause occasional timeouts under contention.
+  // `wrangler dev` instance (single local D1), and each QR test fetches the
+  // qrcode library fresh from a CDN per browser context — high parallelism
+  // was observed to cause occasional timeouts under contention.
   workers: 3,
   retries: 1,
   reporter: "list",
