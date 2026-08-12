@@ -18,6 +18,6 @@ content = content
   .replaceAll("__DB_ID__", dbId)
   .replaceAll("__MAX_TICKETS__", String(maxTickets))
   .replaceAll("__DOMAIN_VALUE__", domainValue)
-  .replace("__ROUTES_BLOCK__\n", routesBlock ?? "");
+  .replace(/__ROUTES_BLOCK__\r?\n/, routesBlock ?? "");
 
 writeFileSync("wrangler.jsonc", content, "utf8");
