@@ -1,5 +1,10 @@
 /**
  * common.js – 共通ユーティリティ（トースト・管理者レイアウト・ヘルパー）
+ *
+ * ここで定義する関数はすべてグローバルスコープに置かれ(ビルドステップなしの
+ * classicスクリプトなのでモジュールではない)、index.htmlで他のページスクリプト
+ * より先に読み込まれる。そのためpages/*.jsの各ファイルからは`import`不要で
+ * そのまま呼べる。
  */
 
 // ─── トースト通知 ────────────────────────────────────────────────────
@@ -59,6 +64,10 @@ function renderAdminLayout(activeTab, contentHtml) {
 
 // ─── CSVダウンロード共通ヘルパー ─────────────────────────────────────
 
+// API.get()がCSVレスポンスを生のResponseオブジェクトのまま返してくる
+// (api.js参照)ので、それをblob化してブラウザにファイルとしてダウンロード
+// させる処理をここに共通化してある。resがResponseでなければ何もせずfalseを
+// 返す(APIエラー時など、呼び出し元でエラートーストの表示だけ行いたい場合用)。
 async function downloadCsvResponse(res, filename) {
   if (!(res instanceof Response)) return false;
   const blob = await res.blob();
@@ -87,6 +96,7 @@ async function exportEmergencyCsv() {
 
 // ─── 汎用ヘルパー ────────────────────────────────────────────────────
 
+// パスワード入力欄の表示/非表示を切り替える(目のアイコンをクリックしたとき)。
 function togglePw(inputId, eyeId) {
   const input = document.getElementById(inputId);
   const eye   = document.getElementById(eyeId);
@@ -95,12 +105,17 @@ function togglePw(inputId, eyeId) {
   if (eye) eye.textContent = input.type === 'password' ? '👁' : '🙈';
 }
 
+// テンプレートリテラルでHTMLを組み立てる際、ユーザー入力(氏名等)を埋め込む前に
+// 必ずこれを通す。招待者名(guest_name)はサーバー側で保存時にすでにエスケープ
+// 済み(src/lib/html.ts)だが、氏名・クラス名など他のフィールドはサーバー側で
+// エスケープしていないため、表示側でのエスケープが唯一のXSS対策になる。
 function escHtml(s) {
   return String(s ?? '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ISO日時文字列を「8/12 14:30」のような日本語ロケール表記に変換する。
 function formatDate(iso) {
   if (!iso) return '';
   try {

@@ -7,14 +7,15 @@ import { tokenUrlsafe } from "../lib/ids";
 import { htmlEscape } from "../lib/html";
 import { getEntryStatus } from "../lib/entry-stats";
 
-// Ports main.py's `/ticket/*` routes (main.py:584-797).
-// No qr_image/qr_url/qr_content in any response here — the client derives
-// the QR payload string itself (`${origin}/scan/${ticket_id}`) and renders
-// the QR client-side.
-// /ticket/scan uses an atomic conditional UPDATE (`WHERE ... AND used=0`)
-// instead of SQLite's BEGIN IMMEDIATE lock — see inline comment below. Error
-// strings are kept byte-identical to main.py since staff-scan.js
-// string-matches them.
+// チケット(招待QR)関連の全ルート。生徒によるQR発行・一覧・削除と、
+// スタッフ/管理者によるスキャン(入場処理)・スキャン履歴を扱う。
+// レスポンスにqr_image/qr_url/qr_contentのような値は一切含めない — QRの
+// 中身の文字列(`${origin}/scan/${ticket_id}`)はクライアント側で自前生成し、
+// 描画もクライアント側(qrcodeライブラリ)で行う(サーバーはQR画像を生成しない)。
+// /ticket/scanは、SQLite版のBEGIN IMMEDIATEロックの代わりに、単一のatomicな
+// 条件付きUPDATE(`WHERE ... AND used=0`)で同時実行制御している(詳細は
+// 下のインラインコメント参照)。エラー文言はフロント(staff-scan.js)が
+// 文字列マッチで種別判定しているため、変更すると連動して壊れる。
 export const ticketRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 type TicketRow = {
@@ -27,6 +28,8 @@ type TicketRow = {
   student_name?: string;
 };
 
+// QRチケットを1枚発行する。招待者名必須・発行期間内のみ・1人あたりの上限
+// (既定5枚、MAX_TICKETS環境変数)以内、という3つのバリデーションを順にかける。
 ticketRoutes.post("/issue", requireStudent, async (c) => {
   const studentId = c.get("payload").sub;
   const body = await c.req.json().catch(() => ({}));
@@ -81,6 +84,8 @@ ticketRoutes.post("/issue", requireStudent, async (c) => {
   });
 });
 
+// ログイン中の生徒が発行した自分のチケット一覧のみを返す(他の生徒の分は
+// 見えない)。QR画像は含めず、フロントがticket_idから自前でQRを描画する。
 ticketRoutes.get("/list", requireStudent, async (c) => {
   const studentId = c.get("payload").sub;
   const db = c.env.DB;
@@ -98,6 +103,8 @@ ticketRoutes.get("/list", requireStudent, async (c) => {
   return c.json(rows.results);
 });
 
+// 生徒が自分の未使用チケットを削除する。他人のチケットは403、すでに
+// 入場済みのチケットは400で拒否する(入場記録を勝手に消せないようにするため)。
 ticketRoutes.delete("/:ticket_id", requireStudent, async (c) => {
   const studentId = c.get("payload").sub;
   const ticketId = c.req.param("ticket_id");
@@ -125,13 +132,15 @@ ticketRoutes.post("/scan", requireStaffOrAdmin, async (c) => {
   const db = c.env.DB;
   const usedAt = new Date().toISOString();
 
-  // Atomic conditional UPDATE replaces SQLite's BEGIN IMMEDIATE lock
-  // (main.py:699-721). A single UPDATE that only succeeds when the row is
-  // still is_valid=1 AND used=0 gives the same "exactly one scan wins"
-  // guarantee under concurrent requests.
-  // scanned_by is not in main.py (added post-migration for the "自分の
-  // スキャン履歴" staff feature) — records which staff/admin performed
-  // the scan.
+  // 同じチケットに対して複数のスタッフが同時にスキャンしても、入場成功が
+  // 1件だけになるようにするための仕組み。SQLite版のBEGIN IMMEDIATEロックの
+  // 代わりに、is_valid=1 AND used=0の条件が真である行にだけ成功する単一の
+  // UPDATE文を使う。D1(内部的にはSQLite)ではUPDATEはatomicに実行されるため、
+  // 「WHERE条件を満たす行が0件ならchanges=0」という結果だけで、ロックなしに
+  // 「ちょうど1件だけ勝つ」ことを保証できる(同時10件スキャンでも1件だけ200、
+  // 残り9件は409になることをテストで確認済み)。
+  // scanned_by列は旧Python版にはなかった追加カラム(誰がスキャンしたかを
+  // 記録し、「自分のスキャン履歴」機能で使う)。
   const result = await db
     .prepare(
       "UPDATE tickets SET used = 1, used_at = ?, scanned_by = ? WHERE id = ? AND is_valid = 1 AND used = 0",
@@ -143,7 +152,10 @@ ticketRoutes.post("/scan", requireStaffOrAdmin, async (c) => {
     return c.json({ status: "ok", result: "ok", color: "green", used_at: usedAt });
   }
 
-  // changes === 0: disambiguate why, in the same precedence order as main.py.
+  // changes === 0 の場合、上のUPDATEが失敗した理由を追加のSELECTで判定する。
+  // 「存在しない(404) → 無効化されている(400) → すでに入場済み(409)」の
+  // 優先順位で判定するのは旧Python版と同じ(この順序をフロントの文字列マッチが
+  // 前提にしている)。
   const row = await db
     .prepare("SELECT id, is_valid, used FROM tickets WHERE id = ?")
     .bind(ticketId)
@@ -158,6 +170,9 @@ ticketRoutes.post("/scan", requireStaffOrAdmin, async (c) => {
   return c.json({ detail: "入場済みチケットです (already used)" }, 409);
 });
 
+// 誤スキャン等で入場記録してしまった場合の取消。usedを0に戻し、
+// scanned_byもクリアする(取り消された記録が「自分のスキャン履歴」に
+// 残り続けないように)。
 ticketRoutes.post("/scan/:ticket_id/cancel", requireStaffOrAdmin, async (c) => {
   const ticketId = c.req.param("ticket_id");
   const db = c.env.DB;
@@ -175,10 +190,10 @@ ticketRoutes.post("/scan/:ticket_id/cancel", requireStaffOrAdmin, async (c) => {
   return c.json({ message: "入場取消しました" });
 });
 
-// Added post-migration (not in main.py) so staff — not just admins — can see
-// current attendance status and their own scan history, per user request:
-// "スタッフモードでは、自分が来場をチェックしたデータが見れるように...
-// 他の管理者と同様に、現在の来場状況も見えるように".
+// 以下2ルートは旧Python版にはなかった追加機能。「管理者専用の/admin/*には
+// アクセスできないスタッフでも、現在の来場状況と自分のスキャン履歴くらいは
+// 見たい」という要望に応えて後から追加した。集計ロジックは/admin/dashboardと
+// entry-stats.tsで共通化している。
 
 ticketRoutes.get("/status", requireStaffOrAdmin, async (c) => {
   const { totalEntries, unusedCount, graphData } = await getEntryStatus(c.env.DB);

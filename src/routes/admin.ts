@@ -7,14 +7,20 @@ import { generateAlnumPassword } from "../lib/password";
 import { decodeCsvBytes, parseCsv, csvResponse } from "../lib/csv";
 import { getEntryStatus } from "../lib/entry-stats";
 
-// Ports main.py's `/admin/*` routes (main.py:801-1322). All routes require
-// an admin-role JWT (requireAdmin, wired below).
+// 管理画面(/admin/*)の全ルート。ダッシュボード・チケット管理・生徒管理・
+// CSVインポート/エクスポート・スタッフ管理・設定の6セクションに分かれている
+// (下のコメント区切り参照)。下の`adminRoutes.use("*", requireAdmin)`により、
+// このファイル内の全ルートに管理者権限チェックが一括で適用される
+// (各ルートで個別にrequireAdminを書く必要がない)。
 export const adminRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 adminRoutes.use("*", requireAdmin);
 
 // ─── ダッシュボード ──────────────────────────────────────────────────────
 
+// 総入場数・未使用チケット数・時間帯別グラフ・生徒別の発行/入場数をまとめて
+// 返す。総入場数等の集計はentry-stats.tsの共通ロジック(/ticket/statusと同じ)
+// を使い、生徒別の内訳だけこのルート独自に集計する。
 adminRoutes.get("/dashboard", async (c) => {
   const db = c.env.DB;
   const { totalEntries, unusedCount, graphData } = await getEntryStatus(db);
@@ -40,6 +46,8 @@ adminRoutes.get("/dashboard", async (c) => {
 
 // ─── チケット管理 ────────────────────────────────────────────────────────
 
+// 生徒名・状態(used/invalid/unused)で絞り込める一覧。SQLをconditions配列で
+// 動的に組み立てる(絞り込み条件が無ければWHERE句自体を付けない)。
 adminRoutes.get("/tickets", async (c) => {
   const studentName = c.req.query("student_name");
   const status = c.req.query("status");
@@ -131,6 +139,9 @@ adminRoutes.post("/tickets", async (c) => {
   return c.json({ ticket_id: ticketId });
 });
 
+// チェックボックスで選んだ複数チケットの一括削除。db.batch()はD1が複数の
+// SQL文を単一の暗黙トランザクションとして実行してくれるAPIで、これにより
+// 「一部だけ削除されて残りは失敗」という中途半端な状態を避けられる。
 adminRoutes.post("/tickets/bulk-delete", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const ticketIds = Array.isArray(body.ticket_ids)
@@ -250,6 +261,10 @@ adminRoutes.post("/students/:student_id/reset-password", async (c) => {
   const row = await db.prepare("SELECT id FROM students WHERE id = ?").bind(studentId).first();
   if (row === null) return c.json({ detail: "生徒が見つかりません" }, 404);
 
+  // 管理者が新しいパスワードを指定しなければランダム生成する(こちらは
+  // 「CSVインポート時の自動パスワード配布」とは別物で、単発のリセット操作なので
+  // 残してある — 生成した平文パスワードはこのレスポンスでその場限り返し、
+  // どこにも保存しない)。
   let newPassword: string;
   const requested = typeof body.password === "string" ? body.password.trim() : "";
   if (requested.length > 0) {
@@ -283,6 +298,9 @@ adminRoutes.delete("/students/:student_id", async (c) => {
 
 // ─── CSV インポート/エクスポート ────────────────────────────────────────
 
+// 生徒名簿CSV(学籍番号,氏名,クラス,パスワード)の一括登録。
+// パスワード列は必須で、空の行はスキップする(自動生成はしない —
+// パスワード自動配布機能は運用の複雑さを下げるため廃止した)。
 adminRoutes.post("/import", async (c) => {
   const form = await c.req.formData().catch(() => null);
   const file = form?.get("file");
@@ -296,6 +314,8 @@ adminRoutes.post("/import", async (c) => {
   const rows = parseCsv(text);
   if (rows.length === 0) return c.json({ detail: "データが空です" }, 400);
 
+  // ヘッダー行の有無を「1行目1列目が数字だけかどうか」で判定する簡易ヒューリスティック
+  // (学籍番号は数字、ヘッダーなら「学籍番号」等の文字列になるはず、という前提)。
   const startIdx = /^\d+$/.test((rows[0][0] ?? "").trim()) ? 0 : 1;
 
   const db = c.env.DB;
@@ -333,6 +353,9 @@ adminRoutes.post("/import", async (c) => {
   return c.json({ success_count: successCount, skip_count: skipCount });
 });
 
+// 全チケットの状況をCSVで出力する。管理画面上部の「🚨緊急CSV出力」ボタンから
+// 呼ばれ、通信障害等でシステムが使えなくなった際に紙運用へ切り替えるための
+// バックアップ出力を想定している。
 adminRoutes.get("/export", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT s.id as student_id, s.name as student_name, s.class,
@@ -415,6 +438,10 @@ adminRoutes.post("/staff/import", async (c) => {
   const rows = parseCsv(text);
   if (rows.length === 0) return c.json({ detail: "データが空です" }, 400);
 
+  // スタッフCSVは学籍番号と違って1列目が数字とは限らない(例: "staff01")ため、
+  // 生徒名簿インポートとは別のヒューリスティックでヘッダー行を判定する:
+  // 1列目が非ASCII文字(日本語ヘッダー等)で始まるか、既知のヘッダー文字列
+  // ("スタッフid"/"id"/"staff_id")と一致すればヘッダー行とみなしてスキップする。
   const firstCell = (rows[0][0] ?? "").trim();
   const firstChar = firstCell.slice(0, 1);
   const isAscii = (s: string) => /^[\x00-\x7F]*$/.test(s);
@@ -460,6 +487,9 @@ adminRoutes.post("/staff/import", async (c) => {
 
 // ─── 設定 ────────────────────────────────────────────────────────────────
 
+// QR発行期間(issue_start/issue_end)の取得・保存。settingsテーブルは
+// 単純なkey-value形式で、`INSERT OR REPLACE`によって「未設定なら作成、
+// 設定済みなら上書き」を1文で済ませている。
 adminRoutes.get("/settings", async (c) => {
   const rows = await c.env.DB.prepare("SELECT key, value FROM settings").all<{
     key: string;

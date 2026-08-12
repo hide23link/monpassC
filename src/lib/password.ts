@@ -1,5 +1,6 @@
-// Ports Python's "".join(secrets.choice(chars) for _ in range(8)) with
-// chars = string.ascii_letters + string.digits (main.py:1057-1058, 1132-1133).
+// 英数字のランダムパスワードを生成する。管理者が生徒のパスワードをリセットする際、
+// 具体的な値を指定しなかった場合の自動生成に使う(POST /admin/students/:id/reset-password)。
+// 旧Python版の "".join(secrets.choice(chars) for _ in range(8)) 相当の実装。
 const ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 export function generateAlnumPassword(length = 8): string {

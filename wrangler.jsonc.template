@@ -1,4 +1,9 @@
 {
+  // これはwrangler.jsoncの雛形(テンプレート)であり、そのままでは使えない。
+  // __WORKER_NAME__のようなプレースホルダーは`scripts/render-wrangler-config.mjs`
+  // (setup.shが内部で呼ぶ)が実際の値に置き換え、リポジトリ直下に`wrangler.jsonc`
+  // を生成する。フォーク先ごとに固有の値(Worker名・D1のIDなど)が入るため、
+  // このテンプレート自体には特定の環境の情報は一切含まれない。
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "__WORKER_NAME__",
   "main": "src/index.ts",
@@ -9,12 +14,12 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    // Boolean form (not the newer per-path array form) so this config stays
-    // parseable by @cloudflare/vitest-pool-workers' internally bundled
-    // wrangler, which lags behind the top-level wrangler dependency. The
-    // Worker now explicitly falls back to ASSETS for unmatched GET routes
-    // (see the catch-all in src/index.ts) instead of relying on wrangler to
-    // route non-API paths to assets automatically.
+    // bool形式を採用している(パスごとの配列形式という新しいwranglerの機能では
+    // ない)。理由: @cloudflare/vitest-pool-workersが内部にバンドルしている
+    // wranglerのバージョンが最新に追いついておらず、配列形式だとパースに失敗する
+    // ため。その代わり、APIにマッチしなかったGETリクエストをASSETSへ明示的に
+    // フォールバックする処理をsrc/index.tsのcatch-allルートで実装しており、
+    // wrangler側の自動振り分けには頼っていない。
     "run_worker_first": true
   },
 __ROUTES_BLOCK__

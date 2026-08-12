@@ -1,10 +1,12 @@
 import Encoding from "encoding-japanese/encoding.js";
 
-// Ports main.py's encoding fallback chain (utf-8-sig -> utf-8 -> shift_jis ->
-// cp932) using encoding-japanese's statistical detector instead, since
-// Workers has no guarantee of ICU/TextDecoder coverage for shift_jis/cp932
-// (see PLAN.md section 3 and risk #3). Strips a UTF-8 BOM first so
-// Encoding.detect isn't confused by it either way.
+// 日本の学校の名簿CSVはExcelからShift_JISでエクスポートされることが多いが、
+// Cloudflare Workers上ではブラウザ標準のTextDecoderがshift_jis/cp932を確実に
+// サポートしているとは限らない。そこでencoding-japaneseの統計的検出機能
+// (Encoding.detect)でバイトパターンから文字コードを推定し、管理者が手動で
+// 選択しなくて済むようにしている。先頭のUTF-8 BOMは、Encoding.detectを
+// 惑わせないよう事前に取り除く。旧Python版のエンコーディング判定チェーン
+// (utf-8-sig -> utf-8 -> shift_jis -> cp932)を踏襲した挙動。
 export function decodeCsvBytes(bytes: Uint8Array): string {
   let data = bytes;
   if (data.length >= 3 && data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf) {
@@ -91,8 +93,8 @@ export function toCsvRow(fields: unknown[]): string {
   return fields.map(toCsvField).join(",");
 }
 
-// Ports main.py's make_csv_response(): UTF-8 BOM-prefixed CSV response
-// (Excel/Numbers/Sheets compatibility).
+// 旧Python版のmake_csv_response()を移植: UTF-8 BOM付きのCSVレスポンスを返す
+// (Excel/Numbers/Sheetsで開いたときに文字化けしないようにするため)。
 export function csvResponse(rows: unknown[][], filename: string): Response {
   const body = rows.map(toCsvRow).join("\r\n") + "\r\n";
   const bom = new Uint8Array([0xef, 0xbb, 0xbf]);

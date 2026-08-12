@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# First-time bootstrap for a new deployment of monpassC: creates the D1
-# database, generates wrangler.jsonc from wrangler.jsonc.template, sets
-# secrets, seeds the first admin account, and deploys. Meant to be run once
-# by an experienced operator. For subsequent updates use scripts/deploy.sh.
+# monpassCを新規デプロイする際の初回構築スクリプト。D1データベースの作成、
+# wrangler.jsonc.templateからのwrangler.jsonc生成、シークレット設定、
+# 最初の管理者アカウントのシード、デプロイまでを一括で行う。
+# ある程度Cloudflareに慣れた運用者が1回だけ実行する想定。
+# 2回目以降の更新はscripts/deploy.shを使う。
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 

@@ -1,5 +1,12 @@
 /**
  * router.js – ハッシュベースルーティング
+ *
+ * サーバー側にルーティングは無く(index.html以外の全パスはこのWorkerの
+ * catch-allでindex.htmlにフォールバックする、src/index.ts参照)、画面遷移は
+ * すべてブラウザの`location.hash`をこのモジュールが監視して行う、いわゆる
+ * SPAのハッシュルーター。index.html末尾で`Router.register(hash, handler, roles)`
+ * を使って各ページを登録し、rolesで「このハッシュにアクセスできるロール」を
+ * 指定する(空配列/未指定なら誰でもアクセス可)。
  */
 
 const Router = (() => {
@@ -18,17 +25,13 @@ const Router = (() => {
   }
 
   function dispatch() {
+    // クエリ文字列(#/foo?bar=1のような形)は現状使っていないが、念のため
+    // 完全一致検索の前に切り落としておく。
     const hash = currentHash().split('?')[0];
-
-    // 完全一致 or プレフィックス一致
-    let route = routes[hash];
-    if (!route) {
-      // プレフィックス検索（例: #/admin/tickets → #/admin/tickets）
-      route = routes[hash];
-    }
+    const route = routes[hash];
 
     if (!route) {
-      // 未定義ルート → ログインへ
+      // 登録されていないハッシュ(存在しないページ) → ログインへ
       navigate('#/login');
       return;
     }
@@ -56,6 +59,9 @@ const Router = (() => {
     renderContent(route.handler);
   }
 
+  // 「このロールではこのページに入れない」となった場合の行き先振り分け。
+  // ログイン画面自体もrolesチェックの対象外(空配列)なので無限リダイレクトには
+  // ならない。
   function redirectByRole() {
     if (!Auth.isValid()) { navigate('#/login'); return; }
     const role = Auth.getRole();
@@ -91,6 +97,8 @@ const Router = (() => {
     }
   }
 
+  // アプリ起動時に一度だけ呼ぶ(index.html末尾)。以降はhashchangeイベントで
+  // dispatch()が自動的に呼ばれる。
   function init() {
     window.addEventListener('hashchange', dispatch);
     // ハッシュなしでアクセスした場合はデフォルトに遷移

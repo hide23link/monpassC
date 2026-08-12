@@ -23,14 +23,15 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <!-- html5-qrcode -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <!-- qrcode (client-side QR rendering; QR generation moved off the server, see PLAN.md section 4).
-       The npm package only ships a CJS/ESM module (no standalone browser
-       global), so it's imported as an ES module here and exposed as
-       window.QRCode for the plain classic-script page files to use. -->
+  <!-- qrcode: QRコードはサーバーでは一切生成せず、すべてクライアント側で描画する。
+       npmパッケージ側がCJS/ESMモジュールしか提供しておらず(単体のブラウザ用
+       グローバル変数がない)、ここでESモジュールとしてimportし、他の
+       classicスクリプト(pages/*.js)から使えるようwindow.QRCodeに代入している。 -->
   <script type="module">
-    // window.QRCodeReady lets classic (non-module) page scripts `await`
-    // library load completion instead of racing it — matters on the flaky
-    // gate-side wifi this app is designed to tolerate.
+    // window.QRCodeReadyは、classicスクリプト側(ESモジュールではない
+    // pages/*.js)がライブラリの読み込み完了を`await`で待てるようにする
+    // Promise。会場の不安定なWi-Fiでも、読み込み前にQR描画を試みて
+    // 失敗する事故を防ぐための仕組み。
     window.QRCodeReady = import('https://cdn.jsdelivr.net/npm/qrcode@1.5.4/+esm')
       .then(m => { window.QRCode = m.default; return window.QRCode; });
   </script>
@@ -62,12 +63,17 @@
 
   <!-- トーストコンテナ（JSで動的生成） -->
 
+  <!-- JS: いずれもビルドステップなしのclassicスクリプト(type="module"ではない)。
+       読み込み順が重要: common.js/api.js/auth.jsが先に読み込まれ、以降のページ
+       スクリプトからグローバル関数(showToast, API.get, Auth.isValid等)として
+       参照できる前提になっている。 -->
+
   <!-- JS: 共通 -->
   <script src="/static/js/common.js"></script>
   <script src="/static/js/api.js"></script>
   <script src="/static/js/auth.js"></script>
 
-  <!-- JS: ページ -->
+  <!-- JS: ページ(#/qrや#/staffなど各ハッシュに対応するpage*関数を定義) -->
   <script src="/static/js/pages/login.js"></script>
   <script src="/static/js/pages/student-qr.js"></script>
   <script src="/static/js/pages/staff-scan.js"></script>
@@ -76,7 +82,8 @@
   <!-- JS: ルーター（最後に初期化） -->
   <script src="/static/js/router.js"></script>
   <script>
-    // ルート登録
+    // ルート登録。第3引数の配列は許可ロール(空配列=誰でもアクセス可能、
+    // 'staff_or_admin'は特殊値でstaff/adminどちらでも通す)。router.js参照。
     Router.register('#/login',           pageStudentLogin,   []);
     Router.register('#/staff-login',     pageStaffLogin,     []);
     Router.register('#/qr',              pageStudentQr,      ['student']);

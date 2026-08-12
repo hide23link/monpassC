@@ -1,6 +1,9 @@
 import type { Bindings } from "../env";
 
-// Mirrors main.py's get_config().
+// 生のBindings(Workerの`vars`はすべて文字列で届くため数値/真偽値型を持たない)を
+// 薄くラップする型。各ルートは`c.env.MAX_TICKETS`を直接読むのではなく、ハンドラの
+// 冒頭で一度`getConfig(c.env)`を呼ぶ形にしているので、parseInt()の処理が1箇所に
+// まとまる。
 export type Config = {
   jwtSecret: string;
   domain: string;

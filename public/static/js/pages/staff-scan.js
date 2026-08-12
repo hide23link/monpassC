@@ -1,8 +1,17 @@
+/**
+ * staff-scan.js – スタッフ/管理者向けのQRスキャン画面(#/staff)
+ *
+ * カメラ映像からのQR読み取りは`html5-qrcode`ライブラリ(index.htmlでCDNから
+ * 読み込み)が担い、このファイルは読み取り結果(decodedText)を受けて
+ * /ticket/scan APIを呼ぶだけ。以前あったオフライン対応(IndexedDBキャッシュ+
+ * キュー同期)は運用の複雑さを下げるため削除済みで、現在は常時オンライン
+ * 前提のシンプルな作りになっている。
+ */
 let scanHistory = [];
 let html5QrScanner = null;
 let statusTimer = null;
 
-// Web Audio API で効果音
+// Web Audio API で効果音（入場OK/NGをそれぞれ異なる音で通知する）
 function playSound(type) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();

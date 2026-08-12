@@ -1,7 +1,10 @@
-// Shared aggregate-entry-status logic, used by both /admin/dashboard (full
-// breakdown, admin-only) and /ticket/status (summary + graph, staff/admin —
-// added so staff can see "現在の来場状況" without needing admin access).
+// 入場状況の集計ロジックを共通化したもの。/admin/dashboard(管理者専用の詳細版)と
+// /ticket/status(スタッフも見られるサマリー+グラフ版。スタッフが管理者権限なしでも
+// 「現在の来場状況」を確認できるよう追加した)の両方から呼ばれる。
 
+// 入場時刻を30分単位の区切り(例: "14:00" or "14:30")に丸める。ダッシュボードの
+// 「時間帯別入場数」棒グラフのX軸ラベルになる。UTC基準で丸めている点に注意
+// (todayIso()と同じ理由でWorkersはUTC動作のため)。
 export function bucketKey(usedAt: string): string | null {
   const d = new Date(usedAt);
   if (Number.isNaN(d.getTime())) return null;

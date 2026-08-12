@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Creates (or resets the password of) a `staff` row with role='admin' directly
-// in D1, bypassing the app's normal /admin/staff API — which itself requires
-// an existing admin, so this is the only way to bootstrap the very first one.
-// Uses the same bcryptjs cost factor (10) as src/routes/auth.ts / admin.ts so
-// the resulting hash verifies identically at login time.
+// role='admin'のstaff行をD1に直接作成(またはパスワードをリセット)する。
+// アプリ通常の/admin/staff APIは「すでに管理者が1人いる」ことを前提にしている
+// ため、その最初の1人だけはこのスクリプトでD1に直接シードするしかない。
+// パスワードのハッシュ化はsrc/routes/auth.ts / admin.tsと同じbcryptjsの
+// コストファクタ(10)を使っており、ログイン時に同じロジックで検証できる。
 
 import bcrypt from "bcryptjs";
 import { execFileSync } from "node:child_process";
@@ -17,8 +17,8 @@ function usageAndExit() {
   process.exit(1);
 }
 
-// Note: input is echoed to the terminal as you type (no masking) — run this
-// somewhere you're not being watched over your shoulder.
+// 注意: 入力したパスワードはマスクされずそのままターミナルに表示される。
+// 人に画面を見られない場所で実行すること。
 function readPassword(prompt) {
   return new Promise((resolve) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });

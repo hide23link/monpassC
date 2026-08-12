@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Update/redeploy an existing monpassC deployment: install deps (if changed),
-# apply any new D1 migrations, then deploy. Run after `git pull`.
+# 既存のmonpassCデプロイを更新する: 依存関係のインストール(変更があれば)、
+# 未適用のD1マイグレーション適用、デプロイ、の順に実行する。
+# `git pull`した後に実行する想定。
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 

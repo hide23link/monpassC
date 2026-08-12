@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Renders wrangler.jsonc.template -> wrangler.jsonc, substituting the
-// per-deployment placeholders. Called from scripts/setup.sh.
+// wrangler.jsonc.template を実際の値で置き換えて wrangler.jsonc を生成する。
+// scripts/setup.sh から呼ばれる(通常はこのスクリプトを直接実行しない)。
 import { readFileSync, writeFileSync } from "node:fs";
 
 const [workerName, dbName, dbId, maxTickets, domainValue, routesBlock] = process.argv.slice(2);
