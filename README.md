@@ -21,8 +21,18 @@
 ### 前提
 
 - Node.js 20以降、npm
+- bash、git、openssl(`scripts/setup.sh`が内部で使用。macOS/Linuxには標準で入っている)
 - Cloudflareアカウント(無料枠で足りる規模)
 - (任意)独自ドメインをCloudflareのゾーンとして追加済みであること — 独自ドメインなしでも `*.workers.dev` で動作する
+
+### 動作環境
+
+`scripts/setup.sh`はbash・対話的なターミナル(TTY)を前提にしている。
+
+- **macOS / Linux**: そのまま動作する
+- **WSL(Windows Subsystem for Linux、WSL2推奨)**: WSL内(Windows側ではなく)にNode.js/npm/git/opensslを入れていれば動作する。`wrangler login`のブラウザ認証は、自動で開かない場合はターミナルに表示されるURLをコピーしてWindows側のブラウザで開けばよい。`/mnt/c/...`のようなWindowsドライブ上ではなく、WSLのLinuxファイルシステム側(`~/`配下等)にcloneすると速い
+- **Windows(WSLなし、cmd/PowerShellのみ)**: 未対応。bash互換シェルが必要
+- **CI/CD等の非対話環境**: 未対応(対話プロンプトを前提にしているため)
 
 ### 初回構築(経験者向け・1回だけ)
 
