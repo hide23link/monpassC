@@ -22,7 +22,7 @@ adminRoutes.get("/dashboard", async (c) => {
   const studentRows = await db
     .prepare(
       `SELECT s.id, s.name, s.class,
-              COUNT(t.id) as issued_count,
+              COUNT(t.id) as ticket_count,
               SUM(CASE WHEN t.used = 1 THEN 1 ELSE 0 END) as entry_count
        FROM students s
        LEFT JOIN tickets t ON s.id = t.student_id
@@ -32,13 +32,8 @@ adminRoutes.get("/dashboard", async (c) => {
 
   return c.json({
     total_entries: totalEntries,
-    entry_count: totalEntries,
     unused_count: unusedCount,
-    unused_tickets: unusedCount,
-    hourly_entries: graphData,
-    entry_graph: graphData,
     graph_data: graphData,
-    student_entries: studentRows.results,
     students: studentRows.results,
   });
 });
@@ -64,14 +59,10 @@ adminRoutes.get("/tickets", async (c) => {
                FROM tickets t JOIN students s ON t.student_id = s.id`;
   if (conditions.length) query += " WHERE " + conditions.join(" AND ");
 
-  const rows = await db_all(c.env.DB, query, params);
+  const stmt = params.length ? c.env.DB.prepare(query).bind(...params) : c.env.DB.prepare(query);
+  const rows = (await stmt.all()).results;
   return c.json(rows);
 });
-
-async function db_all(db: D1Database, query: string, params: unknown[]) {
-  const stmt = params.length ? db.prepare(query).bind(...params) : db.prepare(query);
-  return (await stmt.all()).results;
-}
 
 adminRoutes.get("/tickets/:ticket_id", async (c) => {
   const ticketId = c.req.param("ticket_id");
@@ -188,7 +179,6 @@ adminRoutes.get("/students/:student_id", async (c) => {
   const row = await c.env.DB.prepare(
     `SELECT s.id, s.name, s.class,
             COUNT(t.id) as ticket_count,
-            COUNT(t.id) as issued_count,
             SUM(CASE WHEN t.used = 1 THEN 1 ELSE 0 END) as entry_count
      FROM students s
      LEFT JOIN tickets t ON s.id = t.student_id

@@ -57,20 +57,27 @@ function renderAdminLayout(activeTab, contentHtml) {
     ${contentHtml}`;
 }
 
+// ─── CSVダウンロード共通ヘルパー ─────────────────────────────────────
+
+async function downloadCsvResponse(res, filename) {
+  if (!(res instanceof Response)) return false;
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+  return true;
+}
+
 // ─── 緊急CSV出力 ─────────────────────────────────────────────────────
 
 async function exportEmergencyCsv() {
   try {
     const res = await API.get('/admin/export');
-    if (res instanceof Response) {
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      a.href = url;
-      a.download = `tickets_${date}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+    const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    if (await downloadCsvResponse(res, `tickets_${date}.csv`)) {
       showToast('緊急CSVを出力しました', 'success');
     }
   } catch (e) {
