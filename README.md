@@ -8,9 +8,22 @@
 
 ## 目次
 
+- [スクリーンショット](#スクリーンショット)
 - [クイックスタート(セルフホスト)](#クイックスタートセルフホスト)
 - [ロール](#ロール)
 - [運用・更新](#運用更新)
+
+---
+
+## スクリーンショット
+
+| 生徒ログイン | QR発行・一覧(生徒) |
+|---|---|
+| ![生徒ログイン画面](./docs/screenshots/student-login.jpg) | ![QR発行・一覧画面](./docs/screenshots/student-qr.jpg) |
+
+| QRスキャン(スタッフ) | ダッシュボード(管理者) |
+|---|---|
+| ![QRスキャン画面](./docs/screenshots/staff-scan.jpg) | ![管理者ダッシュボード画面](./docs/screenshots/admin-dashboard.jpg) |
 
 ---
 
