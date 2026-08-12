@@ -67,6 +67,7 @@ monpassC/
 │   ├── setup.sh                   初回構築ブートストラップ
 │   ├── deploy.sh                  更新(マイグレーション+デプロイ)
 │   ├── create-admin.mjs           管理者アカウント作成/パスワードリセット
+│   ├── set-app-title.mjs          サイトタイトル(index.html・manifest.webmanifest)の書き換え(setup.shが内部で呼ぶ)
 │   ├── render-wrangler-config.mjs wrangler.jsonc.template → wrangler.jsonc生成(setup.shが内部で呼ぶ)
 │   └── db-name.mjs                wrangler.jsoncからD1データベース名を取得(npm scriptsが内部で呼ぶ)
 │
