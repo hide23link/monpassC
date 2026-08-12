@@ -1,7 +1,7 @@
-// Ports Python's html.escape(s, quote=True) — used on guest_name before
-// storage (main.py:611). See PLAN.md section 3: kept as a straight port for
-// now rather than moving escaping to the frontend, to avoid changing the
-// stored-data contract that test_TC_09_02_002 (XSS in guest name) checks.
+// Pythonのhtml.escape(s, quote=True)相当。招待者名(guest_name)はD1に保存する
+// 「前」にここでエスケープ済みの状態で書き込む(表示時ではなく保存時にエスケープ)。
+// これにより、チケット一覧・管理画面・CSVエクスポートなど招待者名を表示する
+// すべての箇所が、呼び出し側でエスケープし忘れる心配なく安全になる。
 export function htmlEscape(s: string): string {
   return s
     .replace(/&/g, "&amp;")

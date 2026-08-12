@@ -1,7 +1,9 @@
 import type { Config } from "./config";
 
-// Ports main.py's get_issue_period(conn): reads the `settings` table,
-// falling back to the env-configured defaults if a key is missing.
+// QR発行期間(issue_start/issue_end)は、管理画面の設定ページ(PUT /admin/settings)
+// から実行時に上書きでき、`settings`テーブルに書き込まれる。管理者がまだ設定して
+// いない場合は、Worker変数の ISSUE_START_DATE/ISSUE_END_DATE(wrangler.jsonc.template
+// 参照)にフォールバックする。
 export async function getIssuePeriod(
   db: D1Database,
   config: Config,
@@ -17,8 +19,9 @@ export async function getIssuePeriod(
   };
 }
 
-// Ports Python's date.today().isoformat() — UTC "today" for the issue-period
-// comparison (production runs in UTC; see PLAN.md implementation notes).
+// Cloudflare Workersはリクエスト元の地域に関係なく常にUTCで動作するため、
+// 発行期間の比較に使う「今日」は常にUTC基準の今日になる。現地の日付の変わり目と
+// UTCの日付の変わり目がズレるタイムゾーンの学校で使う場合は注意。
 export function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }

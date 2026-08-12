@@ -1,5 +1,11 @@
 /**
  * api.js – fetch wrapper（JWT自動付与・共通エラー処理）
+ *
+ * このファイルはページ間のfetch呼び出しをすべて集約している。JWTの付与・401時の
+ * 自動ログアウト・エラーメッセージの取り出し方をここで一元管理することで、
+ * 各ページ(pages/*.js)はAPI.get('/foo')のように呼ぶだけで済み、認証やエラー処理を
+ * 意識しなくてよい。バックエンドは同一オリジンで動いているので、パスは
+ * 常に相対パス('/admin/...'等)で、CORS設定は一切不要。
  */
 
 const API = (() => {
@@ -34,6 +40,8 @@ const API = (() => {
       throw Object.assign(new Error(msg), { status: res.status });
     }
 
+    // レスポンスのContent-Typeで戻り値の型を分ける。CSV等は生のResponseオブジェクトを
+    // そのまま返し、呼び出し側(common.jsのdownloadCsvResponse等)がblob()で取り出す。
     const ct = res.headers.get('content-type') || '';
     if (ct.includes('application/json')) return res.json();
     if (ct.includes('text/csv') || ct.includes('text/plain') || ct.includes('application/octet-stream')) {
@@ -42,6 +50,8 @@ const API = (() => {
     return res.text();
   }
 
+  // CSVインポート等、multipart/form-dataでファイルを送るときはrequest()を使わず
+  // こちらを使う(Content-Type: application/jsonを付けてはいけないため専用にしてある)。
   async function uploadFile(path, formData) {
     const token = localStorage.getItem('token');
     const headers = {};

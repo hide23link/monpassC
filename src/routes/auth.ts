@@ -4,8 +4,10 @@ import type { Bindings, Variables } from "../env";
 import { getConfig } from "../lib/config";
 import { issueStudentToken, issueStaffToken } from "../lib/jwt";
 
-// Ports main.py's `/auth/login` (student_login) and `/auth/staff/login`
-// (staff_login). bcrypt.checkpw -> bcryptjs, python-jose -> jose (src/lib/jwt.ts).
+// ログイン系ルート。旧Python版の`/auth/login`(student_login)・
+// `/auth/staff/login`(staff_login)を移植したもの(bcrypt.checkpw -> bcryptjs、
+// python-jose -> jose、詳細はsrc/lib/jwt.ts参照)。生徒とスタッフ/管理者で
+// テーブル・トークンの有効期限が異なるため、ログインAPI自体を2本に分けている。
 export const authRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 type StudentRow = { id: string; password_hash: string };
@@ -27,6 +29,10 @@ authRoutes.post("/login", async (c) => {
     .bind(studentId)
     .first<StudentRow>();
 
+  // 「該当ユーザーなし」と「パスワード不一致」を同じエラーメッセージ・同じ401に
+  // 統一している(row === null の場合でも bcrypt.compare は呼ばずショートサーキット
+  // するが、レスポンス自体は区別しない) — どちらの学籍番号が存在するかを
+  // 攻撃者に教えないため。
   if (row === null || !(await bcrypt.compare(password, row.password_hash))) {
     return c.json({ detail: "学籍番号またはパスワードが正しくありません" }, 401);
   }

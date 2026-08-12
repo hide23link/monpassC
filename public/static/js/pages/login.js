@@ -3,6 +3,8 @@
  * どちらも常に一緒に読み込まれる小さなフォームページなので1ファイルにまとめている。
  */
 
+// すでに有効なトークンを持っている状態でログイン画面に来たら(ブラウザバック等)、
+// フォームを表示せず即座に自分のロールのホームへ飛ばす。
 async function pageStudentLogin() {
   if (Auth.isValid()) { Router.redirectByRole(); return; }
 
@@ -76,6 +78,10 @@ async function pageStudentLogin() {
   });
 }
 
+// スタッフ/管理者共通のログインフォーム。ロールはサーバーが返すトークンの
+// 中身(staff or admin)で決まるため、フォーム自体にロール選択欄はない —
+// ログイン成功後、Auth.getRole()の結果で#/staffと#/adminのどちらに
+// 飛ばすかを振り分けている。
 async function pageStaffLogin() {
   if (Auth.isValid()) { Router.redirectByRole(); return; }
 

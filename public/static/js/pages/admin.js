@@ -126,6 +126,9 @@ function renderChart(graph) {
 // ═══════════════════════════════════════════════════════════════════════
 
 let allTickets = [];
+// チェックボックスで選択中のticket_id集合。サーバーには問い合わせず、
+// 直近取得したallTicketsに対してクライアント側でフィルタ・選択状態を
+// 管理している(生徒名/状態フィルタを切り替えるたびに再フェッチしない)。
 let selectedTicketIds = new Set();
 
 async function pageAdminTickets() {
@@ -293,12 +296,16 @@ async function bulkDeleteTickets() {
   } catch (e) { showToast(e.message, 'error'); }
 }
 
+// is_valid(無効化) → used(入場済み) → 未使用、の優先順位でバッジを1つ返す
+// (両方trueにはならない想定だが、念のためこの順で判定している)。
 function statusLabel(t) {
   if (t.is_valid === 0) return '<span class="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">🚫 無効</span>';
   if (t.used === 1)      return '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✅ 入場済</span>';
   return '<span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">⬜ 未使用</span>';
 }
 
+// PC版のテーブル行(ticketRow)とスマホ版のカード(ticketMobileCard)の両方から
+// 呼ばれる、チケットごとの操作ボタン群(有効化/無効化・入場記録/取消・削除)。
 function ticketActions(t) {
   const id = t.ticket_id;
   const btns = [];

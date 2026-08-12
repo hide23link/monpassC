@@ -1,5 +1,8 @@
--- MONpass D1 schema (ported from the old Python (FastAPI + SQLite) version's init_db()).
--- See PLAN.md section 2 for migration rationale and added indexes.
+-- MONpassの初期スキーマ(旧Python版(FastAPI + SQLite)のinit_db()を移植したもの)。
+-- 生徒/チケット/スタッフ/設定の4テーブルのみで構成される(以前存在した
+-- スタッフ一時昇格・オフラインスキャン記録・ログインロックアウト・
+-- CSV自動パスワード配布用の各テーブルは、機能自体の廃止に伴い
+-- 0003_drop_removed_tables.sqlで削除される)。
 
 CREATE TABLE students (
   id TEXT PRIMARY KEY,

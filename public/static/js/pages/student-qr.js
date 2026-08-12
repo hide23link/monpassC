@@ -1,10 +1,17 @@
-// Backend no longer returns qr_image/qr_url/qr_content for tickets — QR codes
-// are rendered entirely client-side via the `qrcode` library (loaded in
-// index.html). currentTickets caches the last /ticket/list response so
-// onclick handlers (openQrModal) can look tickets up by id instead of
-// re-embedding guest names / data into inline HTML attributes.
+/**
+ * student-qr.js – 生徒向けのQRチケット発行・一覧画面(#/qr)
+ *
+ * サーバーはqr_image/qr_url/qr_contentのような値を一切返さない。QRの中身の
+ * 文字列は`qrContentForTicket()`でこのファイル側が組み立て、`qrcode`ライブラリ
+ * (index.htmlで読み込み、window.QRCodeとして公開)で<canvas>に描画する。
+ * currentTicketsは直近の/ticket/listレスポンスをキャッシュしたもので、
+ * onclickハンドラ(openQrModal等)がinline HTML属性にデータを埋め込まず、
+ * ticket_idからこの配列を検索して参照できるようにしている。
+ */
 let currentTickets = [];
 
+// QRコードに埋め込む文字列。スタッフのスキャン画面(staff-scan.js)側は
+// このURLの`/scan/{ticket_id}`部分を正規表現で読み取ってticket_idを取り出す。
 function qrContentForTicket(ticketId) {
   return `${location.origin}/scan/${ticketId}`;
 }
@@ -64,6 +71,9 @@ async function loadStudentTickets() {
     const tickets = await API.get('/ticket/list');
     currentTickets = tickets;
     const issued = tickets.length;
+    // 注意: この5枚はハードコードで、実際の発行上限はサーバー側の
+    // MAX_TICKETS環境変数(既定5)で変更できる。上限を変えた場合は
+    // ここも合わせて修正しないと表示がズレる(既知の制約、SPEC.md参照)。
     const remaining = 5 - issued;
 
     const badge = document.getElementById('remaining-badge');
@@ -92,6 +102,10 @@ async function loadStudentTickets() {
   }
 }
 
+// qrcodeライブラリはindex.html内でESモジュールとして動的importされており
+// (window.QRCodeReadyがそのPromise)、通常のscriptタグと違って読み込み完了の
+// タイミングが読めない。回線が不安定な現地でも描画タイミングがズレないよう、
+// 実際に描画する直前で必ずこのPromiseをawaitしている。
 async function renderTicketQrCodes(tickets) {
   await window.QRCodeReady;
   for (const t of tickets) {
