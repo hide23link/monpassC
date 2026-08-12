@@ -122,7 +122,6 @@ echo
 echo "== Done =="
 if [ -n "$CUSTOM_DOMAIN" ]; then
   echo "App: https://$CUSTOM_DOMAIN"
-  echo "To protect /admin/* with Cloudflare Access, run: bash scripts/setup-access.sh"
 else
   echo "App: https://${WORKERS_DEV_HOST:-<see deploy output above>}"
 fi

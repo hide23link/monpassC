@@ -8,9 +8,7 @@ import { decodeCsvBytes, parseCsv, csvResponse } from "../lib/csv";
 import { getEntryStatus } from "../lib/entry-stats";
 
 // Ports main.py's `/admin/*` routes (main.py:801-1322). All routes require
-// an admin-role JWT (requireAdmin, wired below) — Cloudflare Access sits in
-// front of this whole group at the edge per PLAN.md section 5, but does not
-// replace this check.
+// an admin-role JWT (requireAdmin, wired below).
 export const adminRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 adminRoutes.use("*", requireAdmin);
@@ -152,19 +150,11 @@ adminRoutes.post("/tickets/bulk-delete", async (c) => {
   }
 
   const db = c.env.DB;
-  // Same D1-FK-enforcement note as DELETE /tickets/:id — clear
-  // offline_scan_queue rows before deleting each ticket. db.batch() runs
-  // all statements in a single implicit transaction.
-  const statements = ticketIds.flatMap((id: string) => [
-    db.prepare("DELETE FROM offline_scan_queue WHERE ticket_id = ?").bind(id),
-    db.prepare("DELETE FROM tickets WHERE id = ?").bind(id),
-  ]);
+  const statements = ticketIds.map((id: string) => db.prepare("DELETE FROM tickets WHERE id = ?").bind(id));
   const results = await db.batch(statements);
 
   let deleted = 0;
-  for (let i = 1; i < results.length; i += 2) {
-    deleted += results[i].meta.changes;
-  }
+  for (const r of results) deleted += r.meta.changes;
   return c.json({ deleted, requested: ticketIds.length });
 });
 
@@ -175,11 +165,6 @@ adminRoutes.delete("/tickets/:ticket_id", async (c) => {
   const row = await db.prepare("SELECT id FROM tickets WHERE id = ?").bind(ticketId).first();
   if (row === null) return c.json({ detail: "チケットが見つかりません" }, 404);
 
-  // Unlike main.py (SQLite, no PRAGMA foreign_keys=ON so FKs are never
-  // enforced), D1 enforces the offline_scan_queue -> tickets FK by default.
-  // Admin can force-delete a used ticket that already has sync records, so
-  // those must be cleared first or the DELETE below fails with a FK error.
-  await db.prepare("DELETE FROM offline_scan_queue WHERE ticket_id = ?").bind(ticketId).run();
   await db.prepare("DELETE FROM tickets WHERE id = ?").bind(ticketId).run();
   return c.json({ message: "削除しました" });
 });
@@ -301,14 +286,6 @@ adminRoutes.delete("/students/:student_id", async (c) => {
   const row = await db.prepare("SELECT id FROM students WHERE id = ?").bind(studentId).first();
   if (row === null) return c.json({ detail: "生徒が見つかりません" }, 404);
 
-  // Same D1-FK-enforcement note as DELETE /tickets/:id above — clear
-  // offline_scan_queue rows for this student's tickets before cascading.
-  await db
-    .prepare(
-      "DELETE FROM offline_scan_queue WHERE ticket_id IN (SELECT id FROM tickets WHERE student_id = ?)",
-    )
-    .bind(studentId)
-    .run();
   await db.prepare("DELETE FROM tickets WHERE student_id = ?").bind(studentId).run();
   await db.prepare("DELETE FROM students WHERE id = ?").bind(studentId).run();
   return c.json({ message: "削除しました" });
@@ -334,17 +311,17 @@ adminRoutes.post("/import", async (c) => {
   const db = c.env.DB;
   let successCount = 0;
   let skipCount = 0;
-  const newPasswords: Array<[string, string, string, string]> = [];
 
   for (const row of rows.slice(startIdx)) {
-    if (row.length < 3) {
+    if (row.length < 4) {
       skipCount += 1;
       continue;
     }
     const studentId = row[0].trim();
     const name = row[1].trim();
     const className = row[2].trim();
-    if (!studentId) {
+    const password = row[3].trim();
+    if (!studentId || !password) {
       skipCount += 1;
       continue;
     }
@@ -355,41 +332,15 @@ adminRoutes.post("/import", async (c) => {
       continue;
     }
 
-    const password = generateAlnumPassword(8);
     const pwHash = await bcrypt.hash(password, 10);
     await db
       .prepare("INSERT INTO students (id, name, class, password_hash) VALUES (?, ?, ?, ?)")
       .bind(studentId, name, className, pwHash)
       .run();
-    newPasswords.push([studentId, password, name, className]);
     successCount += 1;
   }
 
-  // Replaces app.state.last_import_passwords (in-process memory in the old
-  // app, broken under multiple workers/isolates by design) with a D1 table.
-  await db.prepare("DELETE FROM last_import_passwords").run();
-  for (const [studentId, password, name, className] of newPasswords) {
-    await db
-      .prepare(
-        "INSERT INTO last_import_passwords (student_id, password, name, class) VALUES (?, ?, ?, ?)",
-      )
-      .bind(studentId, password, name, className)
-      .run();
-  }
-
   return c.json({ success_count: successCount, skip_count: skipCount });
-});
-
-adminRoutes.get("/import/passwords", async (c) => {
-  const rows = await c.env.DB.prepare(
-    "SELECT student_id, password, name, class FROM last_import_passwords ORDER BY student_id",
-  ).all<{ student_id: string; password: string; name: string; class: string }>();
-
-  const csvRows: unknown[][] = [["学籍番号", "パスワード", "氏名", "クラス"]];
-  for (const r of rows.results) {
-    csvRows.push([r.student_id, r.password, r.name, r.class]);
-  }
-  return csvResponse(csvRows, "passwords.csv");
 });
 
 adminRoutes.get("/export", async (c) => {

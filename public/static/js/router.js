@@ -42,7 +42,7 @@ const Router = (() => {
       }
       const role = Auth.getRole();
       const ok = route.roles.some(r => {
-        if (r === 'staff_or_admin') return role === 'staff' || role === 'admin' || Auth.canAccessStaff();
+        if (r === 'staff_or_admin') return role === 'staff' || role === 'admin';
         return r === role;
       });
       if (!ok) {

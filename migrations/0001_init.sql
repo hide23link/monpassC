@@ -31,47 +31,7 @@ CREATE TABLE staff (
   role TEXT NOT NULL
 );
 
-CREATE TABLE temp_promotions (
-  id TEXT PRIMARY KEY,
-  promote_token TEXT UNIQUE,
-  token_used INTEGER DEFAULT 0,
-  session_id TEXT NOT NULL,
-  student_id TEXT NOT NULL REFERENCES students(id),
-  promoted_by_type TEXT NOT NULL,
-  promoted_by_id TEXT NOT NULL,
-  promoted_at TEXT DEFAULT (datetime('now')),
-  expires_at TEXT NOT NULL
-);
-CREATE INDEX idx_temp_promotions_token ON temp_promotions(promote_token);
-
-CREATE TABLE offline_scan_queue (
-  id TEXT PRIMARY KEY,
-  ticket_id TEXT NOT NULL REFERENCES tickets(id),
-  scanned_at TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  synced INTEGER DEFAULT 0,
-  synced_at TEXT,
-  conflict INTEGER DEFAULT 0
-);
-CREATE INDEX idx_offline_queue_ticket_id ON offline_scan_queue(ticket_id);
-
 CREATE TABLE settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
-);
-
-CREATE TABLE login_failures (
-  user_key TEXT PRIMARY KEY,
-  failure_count INTEGER DEFAULT 0,
-  locked_at REAL
-);
-
--- Replaces app.state.last_import_passwords (in-process memory in the old
--- FastAPI app, broken under multiple workers/isolates by design).
-CREATE TABLE last_import_passwords (
-  student_id TEXT PRIMARY KEY,
-  password TEXT NOT NULL,
-  name TEXT NOT NULL,
-  class TEXT,
-  imported_at TEXT DEFAULT (datetime('now'))
 );

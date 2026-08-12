@@ -123,11 +123,9 @@
         }
       }
       if (!window.location.hash.startsWith('#/staff')) {
-        if (typeof offlineTimer !== 'undefined' && offlineTimer) {
-          clearInterval(offlineTimer); offlineTimer = null;
+        if (typeof statusTimer !== 'undefined' && statusTimer) {
+          clearInterval(statusTimer); statusTimer = null;
         }
-        window.removeEventListener('online',  onOnline);
-        window.removeEventListener('offline', onOffline);
       }
     });
 

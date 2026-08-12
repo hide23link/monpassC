@@ -2,12 +2,10 @@ import { Hono } from "hono";
 import bcrypt from "bcryptjs";
 import type { Bindings, Variables } from "../env";
 import { getConfig } from "../lib/config";
-import { checkAndLock, recordFailure, resetFailures } from "../lib/login-lockout";
 import { issueStudentToken, issueStaffToken } from "../lib/jwt";
 
 // Ports main.py's `/auth/login` (student_login) and `/auth/staff/login`
-// (staff_login). See PLAN.md section 3 ("認証"): bcrypt.checkpw -> bcryptjs,
-// python-jose -> jose (src/lib/jwt.ts), login-lockout logic unchanged.
+// (staff_login). bcrypt.checkpw -> bcryptjs, python-jose -> jose (src/lib/jwt.ts).
 export const authRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 type StudentRow = { id: string; password_hash: string };
@@ -23,14 +21,6 @@ authRoutes.post("/login", async (c) => {
 
   const config = getConfig(c.env);
   const db = c.env.DB;
-  const userKey = `student:${studentId}`;
-
-  if (await checkAndLock(db, userKey, config)) {
-    return c.json(
-      { detail: "アカウントがロックされています (lock)。30分後に再試行してください。" },
-      401,
-    );
-  }
 
   const row = await db
     .prepare("SELECT id, password_hash FROM students WHERE id = ?")
@@ -38,11 +28,9 @@ authRoutes.post("/login", async (c) => {
     .first<StudentRow>();
 
   if (row === null || !(await bcrypt.compare(password, row.password_hash))) {
-    await recordFailure(db, userKey, config);
     return c.json({ detail: "学籍番号またはパスワードが正しくありません" }, 401);
   }
 
-  await resetFailures(db, userKey);
   const token = await issueStudentToken(studentId, config.jwtSecret);
   return c.json({ token });
 });
@@ -57,14 +45,6 @@ authRoutes.post("/staff/login", async (c) => {
 
   const config = getConfig(c.env);
   const db = c.env.DB;
-  const userKey = `staff:${staffId}`;
-
-  if (await checkAndLock(db, userKey, config)) {
-    return c.json(
-      { detail: "アカウントがロックされています (lock)。30分後に再試行してください。" },
-      401,
-    );
-  }
 
   const row = await db
     .prepare("SELECT id, password_hash, role FROM staff WHERE id = ?")
@@ -72,11 +52,9 @@ authRoutes.post("/staff/login", async (c) => {
     .first<StaffRow>();
 
   if (row === null || !(await bcrypt.compare(password, row.password_hash))) {
-    await recordFailure(db, userKey, config);
     return c.json({ detail: "IDまたはパスワードが正しくありません" }, 401);
   }
 
-  await resetFailures(db, userKey);
   const token = await issueStaffToken(staffId, row.role, config.jwtSecret);
   return c.json({ token });
 });

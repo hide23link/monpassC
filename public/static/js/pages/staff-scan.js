@@ -1,7 +1,6 @@
 let scanHistory = [];
 let html5QrScanner = null;
-let offlineTimer = null;
-let cacheTimestamp = null;
+let statusTimer = null;
 
 // Web Audio API で効果音
 function playSound(type) {
@@ -31,13 +30,6 @@ async function pageStaffScan() {
   app.innerHTML = `
     <div class="max-w-lg mx-auto">
       ${isAdmin ? `<a href="#/admin" class="inline-flex items-center gap-1 text-sm text-sky-600 hover:text-sky-700 mb-3">← 管理画面に戻る</a>` : ''}
-      <!-- オンライン/オフライン状態 -->
-      <div id="online-indicator" class="flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-green-50 border border-green-200">
-        <span id="online-text" class="text-green-700 text-sm font-medium">🟢 オンライン</span>
-        <button id="sync-btn" class="hidden bg-sky-500 text-white text-xs px-3 py-1 rounded-full" onclick="syncOfflineQueue()">
-          同期
-        </button>
-      </div>
 
       <!-- スキャンエリア -->
       <div class="bg-white rounded-2xl shadow p-4 mb-4">
@@ -83,22 +75,12 @@ async function pageStaffScan() {
       </div>
     </div>`;
 
-  // キャッシュ取得
-  await fetchCache();
   await loadStatus();
   await loadMyScans();
 
-  // オフライン監視
-  window.addEventListener('online',  onOnline);
-  window.addEventListener('offline', onOffline);
-  updateOnlineIndicator();
-
   // 60秒ごとに差分更新（他のスタッフの入場チェックも反映されるよう現在状況も更新）
-  offlineTimer = setInterval(async () => {
-    if (navigator.onLine) {
-      await fetchCache(cacheTimestamp);
-      await loadStatus();
-    }
+  statusTimer = setInterval(async () => {
+    await loadStatus();
   }, 60000);
 
   // QRスキャナ起動
@@ -143,16 +125,6 @@ function formatScanTime(iso) {
   }
 }
 
-async function fetchCache(since = null) {
-  try {
-    const url = since ? `/ticket/cache?since=${encodeURIComponent(since)}` : '/ticket/cache';
-    const tickets = await API.get(url);
-    const list = Array.isArray(tickets) ? tickets : (tickets.tickets || []);
-    await saveToIndexedDB(list);
-    cacheTimestamp = new Date().toISOString();
-  } catch (_) {}
-}
-
 function startScanner() {
   if (typeof Html5Qrcode === 'undefined') return;
   html5QrScanner = new Html5Qrcode('qr-reader');
@@ -184,54 +156,30 @@ async function onScanSuccess(decodedText) {
   }
 
   try {
-    // 昇格QR（生徒が「スタッフ昇格」ボタンで表示する
-    // https://domain/promote/approve?token=... ）はチケットQRと別経路で処理する。
-    const promoteMatch = decodedText.match(/\/promote\/approve\?token=([^&\s]+)/);
-    if (promoteMatch) {
-      await handlePromoteApprove(promoteMatch[1]);
-      return;
-    }
-
     // URLから ticket_id を抽出（例: https://domain/scan/TICKET_ID）
     const match = decodedText.match(/\/scan\/([^/?#]+)/);
     if (!match) { showScanResult('ng', '不正なQR', ''); return; }
     const ticketId = match[1];
 
-    if (navigator.onLine) {
-      try {
-        const res = await API.post('/ticket/scan', { ticket_id: ticketId });
-        const guestName = res.guest_name || '';
-        showScanResult('ok', `入場OK ${guestName}`, ticketId);
-        addHistory({ ticketId, status: 'ok', label: `✅ 入場OK`, time: new Date() });
-        loadStatus();
-        loadMyScans();
-      } catch (e) {
-        const msg = e.message || '';
-        if (msg.includes('入場済み') || msg.includes('already')) {
-          showScanResult('ng', '入場済み', ticketId);
-          addHistory({ ticketId, status: 'ng', label: '❌ 入場済み', time: new Date() });
-        } else if (msg.includes('無効') || msg.includes('invalid')) {
-          showScanResult('ng', '無効なチケット', ticketId);
-          addHistory({ ticketId, status: 'ng', label: '❌ 無効', time: new Date() });
-        } else {
-          showScanResult('ng', '不正なQR', ticketId);
-          addHistory({ ticketId, status: 'ng', label: '❌ 不正', time: new Date() });
-        }
+    try {
+      const res = await API.post('/ticket/scan', { ticket_id: ticketId });
+      const guestName = res.guest_name || '';
+      showScanResult('ok', `入場OK ${guestName}`, ticketId);
+      addHistory({ ticketId, status: 'ok', label: `✅ 入場OK`, time: new Date() });
+      loadStatus();
+      loadMyScans();
+    } catch (e) {
+      const msg = e.message || '';
+      if (msg.includes('入場済み') || msg.includes('already')) {
+        showScanResult('ng', '入場済み', ticketId);
+        addHistory({ ticketId, status: 'ng', label: '❌ 入場済み', time: new Date() });
+      } else if (msg.includes('無効') || msg.includes('invalid')) {
+        showScanResult('ng', '無効なチケット', ticketId);
+        addHistory({ ticketId, status: 'ng', label: '❌ 無効', time: new Date() });
+      } else {
+        showScanResult('ng', '不正なQR', ticketId);
+        addHistory({ ticketId, status: 'ng', label: '❌ 不正', time: new Date() });
       }
-    } else {
-      // オフライン: IndexedDB で判定
-      const ticket = await getFromIndexedDB(ticketId);
-      if (!ticket) { showScanResult('ng', '不正なQR', ticketId); return; }
-      if (ticket.is_valid === 0) { showScanResult('ng', '無効なチケット', ticketId); return; }
-      if (ticket.used === 1) { showScanResult('ng', '入場済み', ticketId); return; }
-      // キューに積む
-      await addToQueue({ ticket_id: ticketId, scanned_at: new Date().toISOString(), session_id: getSessionId() });
-      // ローカルキャッシュを更新
-      ticket.used = 1;
-      await saveToIndexedDB([ticket]);
-      showScanResult('ok', '入場OK（オフライン）', ticketId);
-      addHistory({ ticketId, status: 'ok', label: '✅ 入場OK(オフライン)', time: new Date() });
-      updateSyncButton();
     }
   } finally {
     setTimeout(() => {
@@ -240,29 +188,6 @@ async function onScanSuccess(decodedText) {
         try { html5QrScanner.resume(); } catch (_) {}
       }
     }, 1500);
-  }
-}
-
-async function handlePromoteApprove(promoteToken) {
-  if (!navigator.onLine) {
-    showScanResult('ng', 'オフラインでは承認できません', '');
-    addHistory({ ticketId: '', status: 'ng', label: '❌ 昇格失敗(オフライン)', time: new Date() });
-    return;
-  }
-  try {
-    await API.post('/promote/approve', { promote_token: promoteToken });
-    showScanResult('ok', 'スタッフ昇格を承認しました', '');
-    addHistory({ ticketId: '', status: 'ok', label: '✅ 昇格承認', time: new Date() });
-  } catch (e) {
-    const msg = e.message || '';
-    if (msg.includes('使用済み')) {
-      showScanResult('ng', 'この昇格QRは使用済みです', '');
-    } else if (msg.includes('無効')) {
-      showScanResult('ng', '無効な昇格QRです', '');
-    } else {
-      showScanResult('ng', '昇格の承認に失敗しました', '');
-    }
-    addHistory({ ticketId: '', status: 'ng', label: '❌ 昇格失敗', time: new Date() });
   }
 }
 
@@ -325,139 +250,4 @@ async function cancelEntry(ticketId, idx) {
   } catch (e) {
     showToast(e.message, 'error');
   }
-}
-
-function updateOnlineIndicator() {
-  const textEl = document.getElementById('online-text');
-  const indEl  = document.getElementById('online-indicator');
-  if (!textEl || !indEl) return;
-  if (navigator.onLine) {
-    textEl.textContent = '🟢 オンライン';
-    indEl.className = 'flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-green-50 border border-green-200';
-  } else {
-    textEl.textContent = '🔴 オフライン（キャッシュ使用中）';
-    indEl.className = 'flex items-center justify-between mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-200';
-  }
-}
-
-async function onOnline() {
-  updateOnlineIndicator();
-  await fetchCache(cacheTimestamp);
-  updateSyncButton();
-}
-function onOffline() { updateOnlineIndicator(); }
-
-async function updateSyncButton() {
-  const count = await getQueueCount();
-  const btn = document.getElementById('sync-btn');
-  if (!btn) return;
-  if (count > 0) {
-    btn.textContent = `同期（${count}件）`;
-    btn.classList.remove('hidden');
-  } else {
-    btn.classList.add('hidden');
-  }
-}
-
-async function syncOfflineQueue() {
-  const items = await getQueue();
-  if (items.length === 0) return;
-  try {
-    await API.post('/ticket/sync', items);
-    await clearQueue();
-    showToast('同期しました', 'success');
-    const btn = document.getElementById('sync-btn');
-    if (btn) btn.classList.add('hidden');
-    await loadStatus();
-    await loadMyScans();
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
-}
-
-// ─── IndexedDB ─────────────────────────────────────────────────────────
-
-function openDB() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('gakuensai_db', 1);
-    req.onupgradeneeded = e => {
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains('ticket_cache'))
-        db.createObjectStore('ticket_cache', { keyPath: 'ticket_id' });
-      if (!db.objectStoreNames.contains('offline_queue'))
-        db.createObjectStore('offline_queue', { autoIncrement: true });
-    };
-    req.onsuccess = e => resolve(e.target.result);
-    req.onerror   = () => reject(req.error);
-  });
-}
-
-async function saveToIndexedDB(tickets) {
-  const db = await openDB();
-  const tx = db.transaction('ticket_cache', 'readwrite');
-  const store = tx.objectStore('ticket_cache');
-  for (const t of tickets) {
-    const key = t.ticket_id || t.id;
-    if (key) store.put({ ...t, ticket_id: key });
-  }
-  return new Promise((res, rej) => { tx.oncomplete = res; tx.onerror = () => rej(tx.error); });
-}
-
-async function getFromIndexedDB(ticketId) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx    = db.transaction('ticket_cache', 'readonly');
-    const store = tx.objectStore('ticket_cache');
-    const req   = store.get(ticketId);
-    req.onsuccess = () => res(req.result || null);
-    req.onerror   = () => rej(req.error);
-  });
-}
-
-async function addToQueue(item) {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx    = db.transaction('offline_queue', 'readwrite');
-    const store = tx.objectStore('offline_queue');
-    store.add(item);
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  });
-}
-
-async function getQueue() {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx    = db.transaction('offline_queue', 'readonly');
-    const store = tx.objectStore('offline_queue');
-    const req   = store.getAll();
-    req.onsuccess = () => res(req.result);
-    req.onerror   = () => rej(req.error);
-  });
-}
-
-async function getQueueCount() {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx    = db.transaction('offline_queue', 'readonly');
-    const store = tx.objectStore('offline_queue');
-    const req   = store.count();
-    req.onsuccess = () => res(req.result);
-    req.onerror   = () => rej(req.error);
-  });
-}
-
-async function clearQueue() {
-  const db = await openDB();
-  return new Promise((res, rej) => {
-    const tx    = db.transaction('offline_queue', 'readwrite');
-    const store = tx.objectStore('offline_queue');
-    store.clear();
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  });
-}
-
-function getSessionId() {
-  let id = sessionStorage.getItem('scan_session_id');
-  if (!id) { id = Math.random().toString(36).slice(2); sessionStorage.setItem('scan_session_id', id); }
-  return id;
 }
