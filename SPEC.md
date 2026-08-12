@@ -104,7 +104,7 @@ monpassC/
 │           ├── auth.js              JWTのlocalStorage管理・ロール判定
 │           ├── common.js            トースト通知・管理者共通レイアウト・緊急CSV出力
 │           ├── router.js            ハッシュベースSPAルーター
-│           └── pages/               画面ごとのロジック(student-qr.js, staff-scan.js, admin-*.js 等)
+│           └── pages/               画面ごとのロジック(login.js, student-qr.js, staff-scan.js, admin.js)
 │
 ├── README.md                    概要・インストール手順
 └── SPEC.md                      本ドキュメント(技術仕様)
@@ -298,7 +298,7 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 - スキャン結果は画面全体を覆う緑(✅)/赤(❌)のフルスクリーンオーバーレイで1.2秒表示(Web Audio APIの効果音・バイブレーション付き)
 - 「現在の来場状況」カード(`/ticket/status`)と「自分がチェックした来場者」リスト(`/ticket/my-scans`、サーバー保存で再読込しても残る)を表示。60秒ごとに自動更新
 
-### 管理画面(`admin-*.js`)
+### 管理画面(`admin.js`)
 - 全ページ共通レイアウト(`common.js`の`renderAdminLayout()`): タブナビゲーション + 右上「🚨緊急CSV出力」ボタン(`/admin/export`をワンクリックでダウンロード、通信障害時の紙運用切替用)
 - ダッシュボード: 30秒ポーリングでKPI(総入場数/未使用数/QR発行済み生徒数)・Chart.jsによる時間帯別棒グラフ・生徒別テーブルを更新
 - チケット管理: 生徒名/状態フィルタ、個別操作(無効化/有効化、入場記録/取消、削除)、チェックボックスによる複数選択+一括削除

@@ -213,11 +213,3 @@ async function openQrModal(ticketId) {
 function closeQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
 
 // escHtml と formatDate は common.js で定義済み
-
-function formatDate(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString('ja-JP', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' });
-  } catch(_) { return iso; }
-}
