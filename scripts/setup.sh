@@ -47,6 +47,10 @@ MAX_TICKETS=${MAX_TICKETS:-5}
 read -r -p "Initial admin ID [admin]: " ADMIN_ID
 ADMIN_ID=${ADMIN_ID:-admin}
 
+read -r -p "Site title [学園祭入場システム（仮）]: " APP_TITLE
+APP_TITLE=${APP_TITLE:-学園祭入場システム（仮）}
+node scripts/set-app-title.mjs "$APP_TITLE"
+
 echo
 echo "Creating D1 database '$DB_NAME'..."
 CREATE_OUTPUT=$($WRANGLER d1 create "$DB_NAME" 2>&1) || {

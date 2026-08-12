@@ -59,12 +59,14 @@ bash scripts/setup.sh
 `scripts/setup.sh` が対話形式で以下を行う:
 
 1. `wrangler login`(未ログインの場合)
-2. Worker名・カスタムドメイン有無・D1データベース名などをプロンプトで確認
+2. Worker名・カスタムドメイン有無・D1データベース名・サイトタイトルなどをプロンプトで確認
 3. `wrangler d1 create` でD1データベースを新規作成し、`wrangler.jsonc.template` から実際の `wrangler.jsonc` を生成
 4. D1マイグレーション適用(ローカル・リモート両方)
 5. `JWT_SECRET` をランダム生成して `wrangler secret put`
 6. 最初の管理者アカウントをID/パスワード入力させて直接D1にシード(`scripts/create-admin.mjs` を内部で使用。詳細は[SPEC.mdの認証・権限モデル](./SPEC.md#認証権限モデル)参照 — このアプリには「初期管理者を自動作成する」仕組みがないため、この一度だけの直接シードが唯一の起点になる)
 7. `wrangler deploy` で本番デプロイ
+
+サイトのタイトル(ブラウザタブ・ナビバー・PWAの名前)は入力を空欄にすると既定値「学園祭入場システム（仮）」のままになる。後から変更したい場合は `node scripts/set-app-title.mjs "新しいタイトル"` を実行すればよい。
 
 ### 各スクリプトの役割まとめ
 
@@ -74,6 +76,7 @@ bash scripts/setup.sh
 | `wrangler.jsonc` | 実際にデプロイされる設定(このリポジトリのforkごとに固有の値が入る。初期状態では未生成) |
 | `scripts/setup.sh` | 初回構築を一括実行するブートストラップスクリプト |
 | `scripts/create-admin.mjs` | 管理者アカウントの作成・パスワードリセット(bcryptjsで実行時と同じ方式でハッシュ化してD1に直接書き込む) |
+| `scripts/set-app-title.mjs` | サイトタイトル(index.html・manifest.webmanifest)の書き換え。`setup.sh`が内部で使用、単独実行も可 |
 | `scripts/deploy.sh` | 2回目以降の更新(マイグレーション適用+デプロイ)をまとめて行う |
 
 ---
