@@ -12,6 +12,4 @@ export type Bindings = {
   ISSUE_END_DATE: string;
   MAX_TICKETS: string;
   JWT_SECRET: string;
-  ADMIN_ID: string;
-  ADMIN_PASSWORD: string;
 };
