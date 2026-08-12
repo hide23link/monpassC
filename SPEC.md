@@ -60,12 +60,15 @@ monpassC/
 ├── wrangler.jsonc               実際のデプロイ設定(setup.shが生成、初期状態では存在しない)
 ├── package.json                 依存関係・npm scripts
 ├── tsconfig.json                TypeScript設定(Workers向け、DOM型なし)
-├── .dev.vars / .dev.vars.example  ローカル開発用シークレット(gitignore対象)
+├── .dev.vars.example             ローカル開発用シークレットのテンプレート(公開)
+├── .dev.vars                    上記をコピーして使う実ファイル(gitignore対象、リポジトリには含まれない)
 │
 ├── scripts/                     セルフホスト用の運用スクリプト
 │   ├── setup.sh                   初回構築ブートストラップ
 │   ├── deploy.sh                  更新(マイグレーション+デプロイ)
-│   └── create-admin.mjs           管理者アカウント作成/パスワードリセット
+│   ├── create-admin.mjs           管理者アカウント作成/パスワードリセット
+│   ├── render-wrangler-config.mjs wrangler.jsonc.template → wrangler.jsonc生成(setup.shが内部で呼ぶ)
+│   └── db-name.mjs                wrangler.jsoncからD1データベース名を取得(npm scriptsが内部で呼ぶ)
 │
 ├── migrations/                  D1マイグレーション(wrangler d1 migrations)
 │   ├── 0001_init.sql             初期スキーマ(students/tickets/staff/settings)
@@ -116,6 +119,7 @@ monpassC/
 - `PRIVATE_NOTES.md`(実際のメールアドレス等、公開できない情報の控え)
 - `PLAN.md` / `PROGRESS.md`(移行計画の設計判断・実装ログ。開発の途中経過であり公開ドキュメントとしては不要なためローカルのみ)
 - `wrangler.jsonc`(forkごとに固有の値が入るため、`setup.sh`実行後にローカルで生成される。コミットするかどうかは運用者の判断に委ねる)
+- `.dev.vars`(実際のシークレット値。公開テンプレートは`.dev.vars.example`としてリポジトリに含まれる)
 
 ---
 
