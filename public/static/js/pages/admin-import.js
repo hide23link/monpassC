@@ -2,7 +2,7 @@ async function pageAdminImport() {
   renderAdminLayout('import', `
     <div class="max-w-lg mx-auto bg-white rounded-xl shadow p-6">
       <h2 class="text-lg font-bold text-sky-600 mb-4">生徒名簿 CSVインポート</h2>
-      <p class="text-sm text-gray-600 mb-4">フォーマット: <code class="bg-gray-100 px-1 rounded">学籍番号,氏名,クラス</code>（UTF-8 or Shift-JIS）</p>
+      <p class="text-sm text-gray-600 mb-4">フォーマット: <code class="bg-gray-100 px-1 rounded">学籍番号,氏名,クラス,パスワード</code>（UTF-8 or Shift-JIS）</p>
 
       <div id="drop-zone"
         class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center cursor-pointer hover:border-sky-400 transition mb-4"
@@ -27,9 +27,6 @@ async function pageAdminImport() {
           <span id="success-badge" class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium"></span>
           <span id="skip-badge"    class="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm font-medium"></span>
         </div>
-        <button id="dl-passwords-btn" class="hidden mt-3 text-sky-600 hover:underline text-sm" onclick="downloadPasswords()">
-          📥 パスワード一覧CSVダウンロード
-        </button>
       </div>
     </div>`);
 }
@@ -86,9 +83,6 @@ async function runImport() {
     document.getElementById('success-badge').textContent = `✅ 成功: ${data.success_count}件`;
     document.getElementById('skip-badge').textContent    = `⏭ スキップ: ${data.skip_count}件`;
 
-    if (data.success_count > 0) {
-      document.getElementById('dl-passwords-btn').classList.remove('hidden');
-    }
     showToast(`インポート完了: ${data.success_count}件`, 'success');
   } catch (e) {
     errEl.textContent = e.message;
@@ -97,17 +91,4 @@ async function runImport() {
     btn.disabled = false;
     btn.textContent = 'インポート実行';
   }
-}
-
-async function downloadPasswords() {
-  try {
-    const res = await API.get('/admin/import/passwords');
-    if (res instanceof Response) {
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'passwords.csv'; a.click();
-      URL.revokeObjectURL(url);
-    }
-  } catch (e) { showToast(e.message, 'error'); }
 }

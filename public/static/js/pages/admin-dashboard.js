@@ -29,7 +29,7 @@ async function pageAdminDashboard() {
       </div>
 
       <!-- 生徒別テーブル -->
-      <div class="bg-white rounded-xl shadow p-5 mb-6">
+      <div class="bg-white rounded-xl shadow p-5">
         <h3 class="text-sm font-semibold text-gray-600 mb-3">生徒別入場状況</h3>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
@@ -40,12 +40,6 @@ async function pageAdminDashboard() {
             <tbody id="student-table"></tbody>
           </table>
         </div>
-      </div>
-
-      <!-- 昇格ツリー -->
-      <div class="bg-white rounded-xl shadow p-5">
-        <h3 class="text-sm font-semibold text-gray-600 mb-3">昇格ツリー</h3>
-        <div id="promote-tree" class="text-sm text-gray-700 font-mono"></div>
       </div>
     </div>`);
 
@@ -86,13 +80,6 @@ async function loadDashboard() {
           <td class="py-1.5 text-right text-green-600">${s.entry_count ?? 0}</td>
         </tr>`).join('');
     }
-
-    // 昇格ツリー
-    try {
-      const promotions = await API.get('/promote/list');
-      renderPromoteTree(promotions);
-    } catch (_) {}
-
   } catch (e) {
     showToast(e.message, 'error');
   }
@@ -126,17 +113,4 @@ function renderChart(graph) {
       scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
     }
   });
-}
-
-function renderPromoteTree(promotions) {
-  const el = document.getElementById('promote-tree');
-  if (!el) return;
-  if (!promotions || promotions.length === 0) {
-    el.textContent = '昇格なし';
-    return;
-  }
-  const lines = promotions.map(p =>
-    `${p.promoted_by_type === 'staff' ? '管理者' : '生徒'} ${p.promoted_by_id} → 生徒 ${p.student_id}（${formatDate(p.promoted_at)}）`
-  );
-  el.innerHTML = lines.map(l => `<div class="py-0.5">${escHtml(l)}</div>`).join('');
 }

@@ -22,7 +22,7 @@
 
 - Node.js 20以降、npm
 - Cloudflareアカウント(無料枠で足りる規模)
-- (任意)独自ドメインをCloudflareのゾーンとして追加済みであること — 独自ドメインなしでも `*.workers.dev` で動作するが、Cloudflare Access(管理画面の保護)は独自ドメインが必要
+- (任意)独自ドメインをCloudflareのゾーンとして追加済みであること — 独自ドメインなしでも `*.workers.dev` で動作する
 
 ### 初回構築(経験者向け・1回だけ)
 
@@ -43,14 +43,6 @@ bash scripts/setup.sh
 6. 最初の管理者アカウントをID/パスワード入力させて直接D1にシード(`scripts/create-admin.mjs` を内部で使用。詳細は[SPEC.mdの認証・権限モデル](./SPEC.md#認証権限モデル)参照 — このアプリには「初期管理者を自動作成する」仕組みがないため、この一度だけの直接シードが唯一の起点になる)
 7. `wrangler deploy` で本番デプロイ
 
-独自ドメインを指定した場合、続けて Cloudflare Access(`/admin/*` の保護)を設定する:
-
-```bash
-bash scripts/setup-access.sh
-```
-
-これは Cloudflare API 経由で Access Application(保護対象: `<ドメイン>/admin`)と、指定したメールアドレス宛のワンタイムPINログインを許可する Policy を作成する。`CF_API_TOKEN`(`Account / Access: Apps and Policies / Edit` 権限)と `CF_ACCOUNT_ID` が必要(詳細はスクリプト内のコメント参照)。独自ドメインなしで `workers.dev` のみで動かす場合はスキップしてよい(その場合 `/admin/*` はアプリ側のJWT認証のみで保護される)。
-
 ### 各スクリプトの役割まとめ
 
 | ファイル | 役割 |
@@ -60,7 +52,6 @@ bash scripts/setup-access.sh
 | `scripts/setup.sh` | 初回構築を一括実行するブートストラップスクリプト |
 | `scripts/create-admin.mjs` | 管理者アカウントの作成・パスワードリセット(bcryptjsで実行時と同じ方式でハッシュ化してD1に直接書き込む) |
 | `scripts/deploy.sh` | 2回目以降の更新(マイグレーション適用+デプロイ)をまとめて行う |
-| `scripts/setup-access.sh` | (任意・独自ドメイン利用時)Cloudflare Access による `/admin/*` 保護をAPI経由で自動設定 |
 
 ---
 
@@ -70,10 +61,9 @@ bash scripts/setup-access.sh
 
 | ロール | できること | ログイン方法 |
 |---|---|---|
-| 生徒 (`student`) | 自分のQRチケット発行(最大5枚、`MAX_TICKETS`で変更可)・一覧・削除、スタッフへの一時昇格リクエスト | 学籍番号 + パスワード |
+| 生徒 (`student`) | 自分のQRチケット発行(最大5枚、`MAX_TICKETS`で変更可)・一覧・削除 | 学籍番号 + パスワード |
 | スタッフ (`staff`) | QRスキャンによる入場処理、来場状況閲覧、自分のスキャン履歴閲覧 | スタッフID + パスワード |
 | 管理者 (`admin`) | 上記全部 + 生徒/スタッフ/チケットのCRUD、CSVインポート/エクスポート、発行期間設定、ダッシュボード集計 | スタッフID + パスワード(`staff`テーブルの`role='admin'`) |
-| 昇格生徒 (`student` + `promoted:true`) | 生徒が当日限定でスタッフ相当の権限(QRスキャン)を得た状態 | 生徒QR→スタッフ/管理者/他の昇格生徒がスキャンして承認 |
 
 ---
 
@@ -103,4 +93,4 @@ npm run db:migrate:local       # ローカルD1にマイグレーション適用
 npm run db:migrate:remote      # 本番D1にマイグレーション適用
 ```
 
-デプロイ直後は`ASSETS`バインディングやAccess設定の反映に数秒〜数十秒のタイムラグがあり、その間`/`アクセスが一時的に500やAccessの302/401混在になることがある(既知の現象、時間経過で解消)。
+デプロイ直後は`ASSETS`バインディングの反映に数秒〜数十秒のタイムラグがあり、その間`/`アクセスが一時的に500になることがある(既知の現象、時間経過で解消)。

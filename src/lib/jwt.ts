@@ -2,15 +2,14 @@ import { SignJWT, jwtVerify } from "jose";
 
 // Ports main.py's make_token / issue_student_token / issue_staff_token /
 // today_midnight_utc / decode_token. Claim names and exp computation are
-// kept identical (see PLAN.md section 3, "認証") since the frontend
-// (auth.js) decodes the JWT payload client-side to read role/sub/exp/promoted.
+// kept identical since the frontend (auth.js) decodes the JWT payload
+// client-side to read role/sub/exp.
 
 export type JwtPayload = {
   sub: string;
   role: "student" | "staff" | "admin";
   iat: number;
   exp: number;
-  promoted?: true;
 };
 
 function key(secret: string) {
@@ -35,11 +34,7 @@ async function makeToken(payload: JwtPayload, secret: string): Promise<string> {
   return await new SignJWT(payload).setProtectedHeader({ alg: "HS256" }).sign(key(secret));
 }
 
-export async function issueStudentToken(
-  studentId: string,
-  secret: string,
-  promoted = false,
-): Promise<string> {
+export async function issueStudentToken(studentId: string, secret: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const payload: JwtPayload = {
     sub: studentId,
@@ -47,10 +42,6 @@ export async function issueStudentToken(
     iat: now,
     exp: now + 30 * 24 * 3600,
   };
-  if (promoted) {
-    payload.promoted = true;
-    payload.exp = todayMidnightUtc();
-  }
   return makeToken(payload, secret);
 }
 

@@ -1,8 +1,8 @@
-// Backend no longer returns qr_image/qr_url/qr_content for tickets (PLAN.md
-// section 4) — QR codes are rendered entirely client-side via the `qrcode`
-// library (loaded in index.html). currentTickets caches the last /ticket/list
-// response so onclick handlers (openQrModal/saveQr) can look tickets up by
-// id instead of re-embedding guest names / data into inline HTML attributes.
+// Backend no longer returns qr_image/qr_url/qr_content for tickets — QR codes
+// are rendered entirely client-side via the `qrcode` library (loaded in
+// index.html). currentTickets caches the last /ticket/list response so
+// onclick handlers (openQrModal) can look tickets up by id instead of
+// re-embedding guest names / data into inline HTML attributes.
 let currentTickets = [];
 
 function qrContentForTicket(ticketId) {
@@ -33,13 +33,6 @@ async function pageStudentQr() {
         <div id="limit-reached" class="hidden text-gray-500 text-sm p-3 bg-gray-50 rounded-lg">
           上限（5枚）に達しました
         </div>
-        <hr class="my-6">
-        <div id="promote-section">
-          <button id="promote-btn"
-            class="w-full border border-sky-400 text-sky-600 hover:bg-sky-50 font-medium py-2 rounded-lg transition">
-            🔑 スタッフに切替
-          </button>
-        </div>
       </div>
       <!-- 右: 一覧 -->
       <div>
@@ -59,23 +52,11 @@ async function pageStudentQr() {
         <p id="modal-guest-name" class="text-gray-700 font-medium text-sm mb-3"></p>
         <button onclick="closeQrModal()" class="bg-gray-200 hover:bg-gray-300 px-6 py-2 rounded-lg text-sm">閉じる</button>
       </div>
-    </div>
-
-    <!-- 昇格QRモーダル -->
-    <div id="promote-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div class="bg-white rounded-2xl p-6 max-w-xs w-full text-center">
-        <h3 class="text-lg font-bold text-sky-600 mb-2">スタッフ昇格</h3>
-        <p class="text-sm text-gray-600 mb-4">管理者・スタッフのスマホでこのQRをスキャンしてもらってください</p>
-        <canvas id="promote-qr-canvas" width="192" height="192" class="w-48 h-48 mx-auto mb-4 qr-img"></canvas>
-        <p id="promote-status" class="text-xs text-gray-400 mb-4">承認をお待ちください…</p>
-        <button onclick="closePromoteModal()" class="bg-gray-200 hover:bg-gray-300 px-6 py-2 rounded-lg">閉じる</button>
-      </div>
     </div>`;
 
   await loadStudentTickets();
 
   document.getElementById('issue-btn').addEventListener('click', issueTicket);
-  document.getElementById('promote-btn').addEventListener('click', requestPromotion);
 }
 
 async function loadStudentTickets() {
@@ -171,14 +152,6 @@ function ticketCard(t) {
           <p class="text-xs text-gray-500 mb-1">発行: ${formatDate(t.created_at)}</p>
           <div class="mb-2">${statusBadge}</div>
           <div class="flex gap-2 flex-wrap">
-            ${!invalid ? `<button onclick="saveQr('${t.ticket_id}')"
-              class="text-sky-600 hover:text-sky-800 text-sm border border-sky-300 hover:border-sky-500 px-2 py-0.5 rounded transition">
-              画像を保存
-            </button>` : ''}
-            ${!invalid && canUseWebShare() ? `<button onclick="shareQr('${t.ticket_id}')"
-              class="text-sky-600 hover:text-sky-800 text-sm border border-sky-300 hover:border-sky-500 px-2 py-0.5 rounded transition">
-              共有
-            </button>` : ''}
             ${deleteBtn}
           </div>
         </div>
@@ -224,50 +197,6 @@ async function deleteTicket(ticketId) {
   }
 }
 
-let promotePollTimer = null;
-
-async function requestPromotion() {
-  try {
-    const data = await API.post('/promote/request', {});
-    await window.QRCodeReady;
-    const canvas = document.getElementById('promote-qr-canvas');
-    await QRCode.toCanvas(canvas, data.qr_content, { width: 192, margin: 2 });
-    document.getElementById('promote-modal').classList.remove('hidden');
-    const statusEl = document.getElementById('promote-status');
-    if (statusEl) statusEl.textContent = '承認をお待ちください…';
-    startPromotePolling(data.session_id);
-  } catch (e) {
-    showToast(e.message, 'error');
-  }
-}
-
-// 承認するのは別デバイス(管理者・スタッフのスマホ)なので、昇格後のトークンは
-// このリクエスト元の画面がポーリングで取得しにいく必要がある(承認側のレス
-// ポンスに含まれるトークンをそのまま使えるのは承認側の画面だけのため)。
-function startPromotePolling(sessionId) {
-  stopPromotePolling();
-  const startedAt = Date.now();
-  promotePollTimer = setInterval(async () => {
-    // QR発行から10分経っても未承認ならポーリングを打ち切る(電池・通信の節約)
-    if (Date.now() - startedAt > 10 * 60 * 1000) { stopPromotePolling(); return; }
-    try {
-      const res = await API.get(`/promote/status?session_id=${encodeURIComponent(sessionId)}`);
-      if (res.approved) {
-        stopPromotePolling();
-        Auth.setToken(res.token);
-        const statusEl = document.getElementById('promote-status');
-        if (statusEl) statusEl.textContent = '承認されました！切り替えます…';
-        showToast('スタッフ権限が承認されました', 'success');
-        setTimeout(() => { location.hash = '#/staff'; }, 800);
-      }
-    } catch (_) { /* 一時的な通信エラーは次回ポーリングでリトライ */ }
-  }, 2000);
-}
-
-function stopPromotePolling() {
-  if (promotePollTimer) { clearInterval(promotePollTimer); promotePollTimer = null; }
-}
-
 async function openQrModal(ticketId) {
   const t = currentTickets.find(x => x.ticket_id === ticketId);
   if (!t) return;
@@ -282,116 +211,6 @@ async function openQrModal(ticketId) {
   }
 }
 function closeQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
-function closePromoteModal() {
-  document.getElementById('promote-modal').classList.add('hidden');
-  stopPromotePolling();
-}
-
-// main.py の make_qr_base64() のレイアウト(ヘッダーテキスト + 区切り線 + QR)を
-// Canvas 2D で再現し、保存用の1枚のPNGとして合成する(PLAN.md section 4)。
-async function buildTicketPng(t) {
-  await window.QRCodeReady;
-  const size = 300;
-  const qrCanvas = document.createElement('canvas');
-  await QRCode.toCanvas(qrCanvas, qrContentForTicket(t.ticket_id), { width: size, margin: 4 });
-
-  const lines = [
-    { text: `招待者：${t.guest_name}`, font: 'bold 21px sans-serif', color: '#141414' },
-    { text: `発行者：${t.student_name || ''}`, font: '16px sans-serif', color: '#3c3c3c' },
-    { text: `発行日：${formatDate(t.created_at)}`, font: '16px sans-serif', color: '#3c3c3c' },
-    { text: '🎪 学園祭入場チケット', font: '16px sans-serif', color: '#787878' },
-  ];
-
-  const padding = 15;
-  const lineH = 29; // タイトルフォント(21px) + 8px、main.pyのline_h計算に相当
-  const headerH = lines.length * lineH + padding * 2;
-  const totalH = headerH + size + padding;
-
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = totalH;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, totalH);
-
-  ctx.textBaseline = 'top';
-  let y = padding;
-  for (const line of lines) {
-    ctx.font = line.font;
-    ctx.fillStyle = line.color;
-    ctx.fillText(line.text, padding, y);
-    y += lineH;
-  }
-
-  ctx.strokeStyle = '#c8c8c8';
-  ctx.beginPath();
-  ctx.moveTo(0, headerH - 1);
-  ctx.lineTo(size, headerH - 1);
-  ctx.stroke();
-
-  ctx.drawImage(qrCanvas, 0, headerH);
-
-  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-}
-
-function sanitizeFilename(s) {
-  return String(s).replace(/[\\/:*?"<>|\s]/g, '_');
-}
-
-function canUseWebShare() {
-  return typeof navigator.share === 'function';
-}
-
-async function saveQr(ticketId) {
-  const t = currentTickets.find(x => x.ticket_id === ticketId);
-  if (!t) return;
-
-  try {
-    const blob = await buildTicketPng(t);
-    const filename = `QR_${sanitizeFilename(t.guest_name)}.png`;
-
-    // blob: URL の方が data: URL より iPhone Safari での <a download> 挙動が安定しやすい。
-    // それでも確実なのは共有ボタン(navigator.share)経由での保存。
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  } catch (e) {
-    showToast('QR画像の生成に失敗しました', 'error');
-  }
-}
-
-async function shareQr(ticketId) {
-  const t = currentTickets.find(x => x.ticket_id === ticketId);
-  if (!t) return;
-
-  try {
-    const blob = await buildTicketPng(t);
-    const filename = `QR_${sanitizeFilename(t.guest_name)}.png`;
-    const file = new File([blob], filename, { type: 'image/png' });
-
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: '学園祭入場チケット',
-        text: `${t.guest_name}様の入場QRチケットです`,
-      });
-    } else if (navigator.share) {
-      // 一部端末は share() は使えるが files 共有には未対応
-      await navigator.share({
-        title: '学園祭入場チケット',
-        text: `${t.guest_name}様の入場QRチケットです`,
-      });
-    } else {
-      showToast('この端末では共有機能が使えません', 'error');
-    }
-  } catch (e) {
-    if (e && e.name === 'AbortError') return; // 共有シートをキャンセルした場合は何もしない
-    showToast('共有に失敗しました', 'error');
-  }
-}
 
 // escHtml と formatDate は common.js で定義済み
 

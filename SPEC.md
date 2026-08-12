@@ -25,13 +25,12 @@
 Cloudflare Workers(Hono)
    ├─ /health                     ヘルスチェック
    ├─ /auth/*                     ログイン(生徒・スタッフ/管理者共通)
-   ├─ /ticket/*                   チケット発行・一覧・スキャン・オフライン同期
-   ├─ /promote/*                  スタッフ一時昇格
-   ├─ /admin/*                    管理者専用CRUD(Cloudflare Access保護、任意)
+   ├─ /ticket/*                   チケット発行・一覧・スキャン
+   ├─ /admin/*                    管理者専用CRUD
    └─ * (catch-all)                ASSETS binding にフォールバック(SPA/静的ファイル)
         │
         ▼
-   D1(自分で名前を決めるD1データベース)   生徒/チケット/スタッフ/設定などを格納
+   D1(自分で名前を決めるD1データベース)   生徒/チケット/スタッフ/設定を格納
 ```
 
 | レイヤ | 技術 |
@@ -45,11 +44,11 @@ Cloudflare Workers(Hono)
 | QRコード生成 | `qrcode`(クライアント側、`<canvas>`に描画。サーバーはQR画像を一切生成しない) |
 | QRコード読み取り | `html5-qrcode`(クライアント側、カメラ) |
 | フロントエンド | Vanilla JS(ビルドステップなし)+ Tailwind CSS(CDN)+ Chart.js(CDN) |
-| オフライン動作 | IndexedDB(スタッフのスキャン画面のみ) |
 | PWA | Web App Manifest + 最小限のService Worker(インストール可能にするためだけ、キャッシュ処理はなし) |
-| アクセス保護 | Cloudflare Access(任意、`/admin/*` のみ、メールOTP) |
 
-Honoを選んだ理由: 移行元のFastAPI版はほぼ全ルートが1ファイルにフラットに並んでおり、Honoの `app.route()` によるグルーピング(auth/ticket/admin/promote)がFastAPIの構造に最も近く、1:1移植のリスクが小さかったため。
+Honoを選んだ理由: 移行元のFastAPI版はほぼ全ルートが1ファイルにフラットに並んでおり、Honoの `app.route()` によるグルーピング(auth/ticket/admin)がFastAPIの構造に最も近く、1:1移植のリスクが小さかったため。
+
+このプロジェクトは元々スタッフ一時昇格・Cloudflare Access連携・オフラインスキャン・チケット画像保存/共有・ログインロックアウト・CSVインポート時のパスワード自動配布といった機能も持っていたが、運用の複雑さを下げるためすべて削除した(セルフホストのしやすさを優先する判断)。
 
 ---
 
@@ -66,12 +65,12 @@ monpassC/
 ├── scripts/                     セルフホスト用の運用スクリプト
 │   ├── setup.sh                   初回構築ブートストラップ
 │   ├── deploy.sh                  更新(マイグレーション+デプロイ)
-│   ├── create-admin.mjs           管理者アカウント作成/パスワードリセット
-│   └── setup-access.sh            Cloudflare Access自動設定(任意)
+│   └── create-admin.mjs           管理者アカウント作成/パスワードリセット
 │
 ├── migrations/                  D1マイグレーション(wrangler d1 migrations)
-│   ├── 0001_init.sql             初期スキーマ(7テーブル+インデックス+last_import_passwords)
-│   └── 0002_scanned_by.sql       tickets.scanned_by 列の追加
+│   ├── 0001_init.sql             初期スキーマ(students/tickets/staff/settings)
+│   ├── 0002_scanned_by.sql       tickets.scanned_by 列の追加
+│   └── 0003_drop_removed_tables.sql  廃止機能のテーブル削除(既存デプロイのクリーンアップ用)
 │
 ├── src/                         バックエンド(Hono、Workers上で実行)
 │   ├── index.ts                  アプリのエントリポイント・ルートマウント・ASSETSフォールバック
@@ -79,20 +78,18 @@ monpassC/
 │   ├── routes/
 │   │   ├── auth.ts                POST /auth/login, /auth/staff/login
 │   │   ├── ticket.ts               /ticket/* 全ルート
-│   │   ├── promote.ts              /promote/* 全ルート
 │   │   └── admin.ts                /admin/* 全ルート(requireAdmin一括適用)
 │   ├── middleware/
-│   │   └── auth.ts                requireStudent/requireStudentOrPromoted/requireStaffOrAdmin/requirePromoteApprover/requireAdmin
+│   │   └── auth.ts                requireStudent/requireStaffOrAdmin/requireAdmin
 │   └── lib/
 │       ├── config.ts               Bindingsから設定値を読むgetConfig()
 │       ├── jwt.ts                  JWT発行・検証(issueStudentToken/issueStaffToken/decodeToken)
-│       ├── login-lockout.ts        ログイン失敗回数によるロックアウト
 │       ├── settings.ts             QR発行期間の取得
 │       ├── entry-stats.ts          入場集計ロジック(admin/dashboardとticket/statusで共用)
 │       ├── csv.ts                  CSV文字コード判定・パース・BOM付きレスポンス生成
 │       ├── ids.ts                  token_urlsafe相当のランダムID生成
 │       ├── html.ts                 html.escape相当のXSS対策エスケープ
-│       ├── password.ts             英数字8桁ランダムパスワード生成
+│       ├── password.ts             英数字8桁ランダムパスワード生成(生徒パスワードリセットの自動生成用)
 │       └── encoding-japanese-bundle.d.ts  encoding-japaneseの自己完結ビルド用アンビエント型
 │
 ├── public/                      静的アセット(Workers Static Assetsとして配信)
@@ -144,7 +141,7 @@ DB名は `setup.sh` 実行時に自分で決める(このリポジトリの参�
 | is_valid | INTEGER (0/1) | 管理者による無効化フラグ |
 | used | INTEGER (0/1) | 入場済みフラグ |
 | used_at | TEXT | 入場日時 |
-| scanned_by | TEXT | 入場処理したスタッフ/管理者/昇格生徒のID(0002で追加) |
+| scanned_by | TEXT | 入場処理したスタッフ/管理者のID(0002で追加) |
 | created_at | TEXT | 発行日時 |
 
 インデックス: `student_id`, `used`, `is_valid`, `created_at`, `used_at`, `scanned_by`
@@ -157,53 +154,13 @@ DB名は `setup.sh` 実行時に自分で決める(このリポジトリの参�
 | password_hash | TEXT | bcryptハッシュ |
 | role | TEXT | `staff` または `admin` |
 
-### temp_promotions(スタッフ一時昇格)
-| 列 | 型 | 説明 |
-|---|---|---|
-| id | TEXT PK | 内部ID |
-| promote_token | TEXT UNIQUE | QRに埋め込まれる承認用トークン |
-| token_used | INTEGER (0/1) | 承認済みフラグ |
-| session_id | TEXT | 申請元デバイスが`/promote/status`をポーリングする際のキー |
-| student_id | TEXT FK→students.id | 昇格を申請した生徒 |
-| promoted_by_type / promoted_by_id | TEXT | 承認者種別・ID(承認前は`'pending'`) |
-| promoted_at | TEXT | 承認日時 |
-| expires_at | TEXT | 昇格トークンの有効期限(当日23:59:59 UTC) |
-
-### offline_scan_queue(オフラインスキャン記録)
-| 列 | 型 | 説明 |
-|---|---|---|
-| id | TEXT PK | 内部ID |
-| ticket_id | TEXT FK→tickets.id | 対象チケット |
-| scanned_at | TEXT | 端末側で記録したスキャン時刻 |
-| session_id | TEXT | 端末セッションID(`sessionStorage`起源) |
-| synced | INTEGER (0/1) | サーバー同期済みフラグ |
-| synced_at | TEXT | 同期日時 |
-| conflict | INTEGER (0/1) | 同期時に既に使用済みだった等の競合フラグ |
-
 ### settings(アプリ設定)
 | 列 | 型 | 説明 |
 |---|---|---|
 | key | TEXT PK | 設定キー(`issue_start`, `issue_end`) |
 | value | TEXT | 値 |
 
-### login_failures(ログイン失敗カウンタ)
-| 列 | 型 | 説明 |
-|---|---|---|
-| user_key | TEXT PK | `student:{id}` または `staff:{id}` |
-| failure_count | INTEGER | 連続失敗回数 |
-| locked_at | REAL | ロック開始時刻(UNIX epoch秒) |
-
-### last_import_passwords(直近CSVインポートの生成パスワード控え)
-| 列 | 型 | 説明 |
-|---|---|---|
-| student_id | TEXT PK | 学籍番号 |
-| password | TEXT | インポート時に自動生成された平文パスワード |
-| name / class | TEXT | 氏名・クラス |
-| imported_at | TEXT | インポート日時 |
-
-インポートの都度 `DELETE` してから `INSERT` する(直近1回分のみ保持)。管理者はこの内容をCSVでダウンロードして生徒に配布する。
-
-**D1の外部キー制約について**: D1はデフォルトで外部キー制約を強制する。チケット削除・生徒削除の際は先に `offline_scan_queue` の関連行を削除してからでないと `DELETE` が失敗するため、該当箇所(`DELETE /admin/tickets/:id`、`POST /admin/tickets/bulk-delete`、`DELETE /admin/students/:id`)はすべてこの順序で実装されている。
+`migrations/0003_drop_removed_tables.sql` は、以前存在した `temp_promotions`(スタッフ一時昇格)・`offline_scan_queue`(オフラインスキャン記録)・`login_failures`(ログインロックアウト)・`last_import_passwords`(CSVインポート時のパスワード自動配布)の4テーブルを削除する(機能自体を廃止したため)。新規インストールでは`0001_init.sql`がそもそもこれらを作成しないため実質no-op。
 
 ---
 
@@ -211,40 +168,27 @@ DB名は `setup.sh` 実行時に自分で決める(このリポジトリの参�
 
 ### JWT
 - アルゴリズム: HS256、秘密鍵は `JWT_SECRET`(Workers Secret、`setup.sh`がランダム生成して設定する)
-- クレーム: `{ sub, role, iat, exp, promoted? }`
+- クレーム: `{ sub, role, iat, exp }`
 - `Authorization: Bearer <token>` ヘッダーで送信
 - ペイロードはクライアント側でも`atob()`によりデコードされ、ロール判定・UI出し分けに使われる(`auth.js`)
 
 | トークン種別 | role | 有効期限 |
 |---|---|---|
-| 生徒(通常) | `student` | 発行から30日 |
-| 生徒(昇格済み) | `student`, `promoted: true` | 当日 23:59:59 UTC まで |
+| 生徒 | `student` | 発行から30日 |
 | スタッフ/管理者 | `staff` / `admin` | 当日 23:59:59 UTC まで |
 
 ### ミドルウェア(`src/middleware/auth.ts`)
 | ミドルウェア | 許可条件 | 拒否時メッセージ |
 |---|---|---|
 | `requireStudent` | `role === 'student'` | 403「生徒権限が必要です」 |
-| `requireStudentOrPromoted` | `role === 'student'`(昇格の有無は問わない、チケット発行時の判定と同じ) | 同上 |
-| `requireStaffOrAdmin` | `role === 'staff' \| 'admin'`、または`role==='student' && promoted===true` | 403「スタッフ権限が必要です」 |
-| `requirePromoteApprover` | `requireStaffOrAdmin`と同条件(`/promote/approve`専用、文言のみ異なる) | 403「昇格承認権限がありません」 |
+| `requireStaffOrAdmin` | `role === 'staff' \| 'admin'` | 403「スタッフ権限が必要です」 |
 | `requireAdmin` | `role === 'admin'` | 403「管理者権限が必要です」 |
 
-トークン欠落/不正はすべて401「認証が必要です」/「無効なトークンです」。
-
-### ログインロックアウト
-`login_failures` テーブルで管理。`LOGIN_MAX_FAILURES`(既定10回)連続失敗で `LOGIN_LOCKOUT_MINUTES`(既定30分)ロック。ロック中は401「アカウントがロックされています」。ロック期間経過後は自動解除、ログイン成功時はカウンタを削除。
+トークン欠落/不正はすべて401「認証が必要です」/「無効なトークンです」。ログイン失敗回数によるロックアウトは持たない(パスワードハッシュ比較のみ)。
 
 ### 初期管理者アカウントについて(重要)
 
 このアプリには「起動時に管理者アカウントを自動生成する」仕組みがない(旧Python版にはあったが、Workers移行時に廃止した)。管理者の追加は通常 `/admin/staff` 経由で行うが、**それには既に管理者が1人いる必要がある**。したがって新規デプロイでは最初の1人だけ `scripts/create-admin.mjs` でD1に直接シードする(`setup.sh`が初回構築時に自動で呼ぶ)。2人目以降は管理画面から追加すればよい。
-
-### スタッフ一時昇格フロー
-1. 生徒が「スタッフに切替」→ `POST /promote/request` → `temp_promotions` に未使用トークンを作成、QR(`https://{domain}/promote/approve?token=...`)を`<canvas>`に描画して表示
-2. スタッフ/管理者/別の昇格済み生徒が、スキャン画面(`staff-scan.js`)でこのQRを読み取ると通常のチケットQRとは別経路で認識し `POST /promote/approve` を呼ぶ(`requirePromoteApprover`保護)
-3. 承認レスポンスは**承認した側の端末**に返るだけなので、申請元の生徒の端末は `GET /promote/status?session_id=...` を2秒間隔・最大10分ポーリングして承認を検知し、自分用の昇格済みJWTを取得する
-4. 昇格済みJWTは当日限り有効。`requireStaffOrAdmin`保護下のスキャン画面(`#/staff`)にアクセスできるようになる
-5. `GET /promote/list`(管理者専用)で承認済み昇格の一覧を確認可能。管理者ダッシュボードの「昇格ツリー」に反映される
 
 ---
 
@@ -269,12 +213,10 @@ Body: `{ staff_id, password }` → `{ token }`
 | `POST /ticket/issue` | 生徒 | チケット発行。招待者名必須、発行期間内のみ、上限(既定5枚、`MAX_TICKETS`)まで |
 | `GET /ticket/list` | 生徒 | 自分のチケット一覧(QR画像は含まない) |
 | `DELETE /ticket/:ticket_id` | 生徒 | 自分の未使用チケットを削除(他人のチケット403、使用済み400) |
-| `POST /ticket/scan` | スタッフ/管理者/昇格生徒 | `{ ticket_id }` → 入場処理。**同時実行下でも1件のみ成功**(後述) |
-| `POST /ticket/scan/:ticket_id/cancel` | スタッフ/管理者/昇格生徒 | 入場取消(`used`を0に戻す、`scanned_by`もクリア) |
-| `GET /ticket/status` | スタッフ/管理者/昇格生徒 | 現在の入場済み/未入場件数と30分刻みグラフデータ(`/admin/dashboard`と同じ集計ロジックを共用) |
-| `GET /ticket/my-scans` | スタッフ/管理者/昇格生徒 | 自分がスキャンしたチケット最大100件(`scanned_by`で絞込) |
-| `GET /ticket/cache?since=` | スタッフ/管理者/昇格生徒 | オフライン用チケットキャッシュ差分取得(IndexedDBへの保存元) |
-| `POST /ticket/sync` | スタッフ/管理者/昇格生徒 | オフラインキュー一括同期。各アイテムを条件付きUPDATEで処理し、競合時は`offline_scan_queue`に`conflict=1`で記録 |
+| `POST /ticket/scan` | スタッフ/管理者 | `{ ticket_id }` → 入場処理。**同時実行下でも1件のみ成功**(後述) |
+| `POST /ticket/scan/:ticket_id/cancel` | スタッフ/管理者 | 入場取消(`used`を0に戻す、`scanned_by`もクリア) |
+| `GET /ticket/status` | スタッフ/管理者 | 現在の入場済み/未入場件数と30分刻みグラフデータ(`/admin/dashboard`と同じ集計ロジックを共用) |
+| `GET /ticket/my-scans` | スタッフ/管理者 | 自分がスキャンしたチケット最大100件(`scanned_by`で絞込) |
 
 **`/ticket/scan`の同時実行制御**: SQLite版の`BEGIN IMMEDIATE`ロックの代わりに、単一のatomicな条件付きUPDATEで実現している。
 
@@ -289,17 +231,7 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 
 同一チケットへの10並列スキャンでも1件のみ200成功・残りは409になることを、Miniflare(ローカルD1)と実際のCloudflare D1の両方で確認済み(ローカルのVitestスイートに回帰テストあり、[テスト](#テストローカル開発専用)参照)。
 
-### `/promote/*`
-| Method/Path | 認可 | 概要 |
-|---|---|---|
-| `POST /promote/request` | 生徒 | 昇格申請、`{ promote_token, session_id, qr_content }` を返す |
-| `GET /promote/status?session_id=` | 生徒 | 申請元デバイスが承認状況をポーリング。承認済みなら`{ approved:true, token, student_id }` |
-| `POST /promote/approve` | スタッフ/管理者/昇格生徒 | `{ promote_token }` → 承認して`{ token, student_id }`(承認した端末用のトークンではなく、内容は同じ形。実際に使うのは申請元) |
-| `GET /promote/list` | 管理者 | 承認済み昇格の一覧 |
-
-400(無効なトークン)/ 409(使用済みトークン)。
-
-### `/admin/*`(`requireAdmin`をルートグループ全体に適用、独自ドメイン利用時はCloudflare Accessでも保護可能)
+### `/admin/*`(`requireAdmin`をルートグループ全体に適用)
 
 **ダッシュボード**
 - `GET /admin/dashboard` — 総入場数・未使用数・時間帯別グラフ・生徒別発行/入場数
@@ -320,8 +252,7 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 - `DELETE /admin/students/:student_id` — チケットも連鎖削除
 
 **CSV**
-- `POST /admin/import` — 生徒名簿CSV(`学籍番号,氏名,クラス`、UTF-8/Shift_JIS/CP932自動判定)。新規生徒にはランダムパスワードを自動発行し`last_import_passwords`に記録
-- `GET /admin/import/passwords` — 直近インポート分のパスワード一覧CSV
+- `POST /admin/import` — 生徒名簿CSV(`学籍番号,氏名,クラス,パスワード`、UTF-8/Shift_JIS/CP932自動判定)。パスワード列が空の行はスキップされる
 - `GET /admin/export` — 全チケットの状況CSV(緊急時のバックアップ出力、UI上部の「🚨緊急CSV出力」ボタンからも呼ばれる)
 
 **スタッフ管理**
@@ -344,7 +275,7 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 | `#/login` | 生徒ログイン | なし |
 | `#/staff-login` | スタッフ/管理者ログイン | なし |
 | `#/qr` | QR発行・一覧 | `student` |
-| `#/staff` | QRスキャン | `staff_or_admin`(昇格生徒含む) |
+| `#/staff` | QRスキャン | `staff_or_admin` |
 | `#/admin` | ダッシュボード | `admin` |
 | `#/admin/tickets` | チケット管理 | `admin` |
 | `#/admin/students` | 生徒管理 | `admin` |
@@ -358,30 +289,26 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 サーバーはQR画像やQR文字列を一切返さない。フロントエンドが `${location.origin}/scan/${ticket_id}` を自前生成し、`qrcode`ライブラリで`<canvas>`に描画する(`student-qr.js`)。
 
 - 一覧のサムネイル・拡大モーダル: `QRCode.toCanvas()`で都度描画
-- 「画像を保存」: `buildTicketPng()`でQR + 招待者名/発行者名/発行日/フッターをCanvas 2Dで1枚のPNGに合成し、`blob:` URLで`<a download>`(iPhone Safariでの安定性のため`data:`URLは不使用)
-- 「共有」(`navigator.share`対応端末のみ表示): 同じPNGを`File`化し、Web Share APIでネイティブ共有シートを開く
 - ライブラリ読み込み: `qrcode`はブラウザ向けグローバルビルドを持たないため、`index.html`内でESモジュールとしてjsdelivrの`+esm`から動的importし、`window.QRCode`に代入。`window.QRCodeReady`(Promise)で読み込み完了を待てるようにしている(現地の不安定な回線を考慮)
 
-### QRスキャン・オフライン対応(`staff-scan.js`)
+### QRスキャン(`staff-scan.js`)
 - `html5-qrcode`でカメラ映像からQRを読み取る(`facingMode: 'environment'`, fps:10)
 - **多重スキャン防止**: `html5-qrcode`は同じQRが映っている間、約100ms間隔で検出コールバックを呼び続ける。検出直後にスキャナーを`pause()`し、1.5秒のクールダウン後に`resume()`することで、1回のかざしにつき1回だけ`/ticket/scan`を呼ぶようにしている
-- QRの内容が `/promote/approve?token=...` にマッチすれば昇格承認処理、`/scan/{ticket_id}` にマッチすれば通常の入場スキャンとして処理を分岐
-- オンライン時: `POST /ticket/scan`を直接呼ぶ。オフライン時: IndexedDB(`gakuensai_db`)にキャッシュ済みのチケット情報(`GET /ticket/cache`で取得)を参照してローカル判定し、`offline_queue`ストアに積む
+- QRの内容が `/scan/{ticket_id}` にマッチすれば入場スキャンとして`POST /ticket/scan`を呼ぶ
 - スキャン結果は画面全体を覆う緑(✅)/赤(❌)のフルスクリーンオーバーレイで1.2秒表示(Web Audio APIの効果音・バイブレーション付き)
 - 「現在の来場状況」カード(`/ticket/status`)と「自分がチェックした来場者」リスト(`/ticket/my-scans`、サーバー保存で再読込しても残る)を表示。60秒ごとに自動更新
-- `online`/`offline`イベント監視。オンライン復帰時に`/ticket/cache`差分取得。未同期のオフラインキューがあれば「同期」ボタンを表示し、押下で`POST /ticket/sync`
 
 ### 管理画面(`admin-*.js`)
 - 全ページ共通レイアウト(`common.js`の`renderAdminLayout()`): タブナビゲーション + 右上「🚨緊急CSV出力」ボタン(`/admin/export`をワンクリックでダウンロード、通信障害時の紙運用切替用)
-- ダッシュボード: 30秒ポーリングでKPI(総入場数/未使用数/QR発行済み生徒数)・Chart.jsによる時間帯別棒グラフ・生徒別テーブル・昇格ツリーを更新
+- ダッシュボード: 30秒ポーリングでKPI(総入場数/未使用数/QR発行済み生徒数)・Chart.jsによる時間帯別棒グラフ・生徒別テーブルを更新
 - チケット管理: 生徒名/状態フィルタ、個別操作(無効化/有効化、入場記録/取消、削除)、チェックボックスによる複数選択+一括削除
 - 生徒管理: 追加/編集/パスワードリセット(指定 or 自動生成)/削除、学籍番号・氏名での検索
-- CSVインポート(生徒): ドラッグ&ドロップ対応、成功/スキップ件数表示、成功時にパスワード一覧CSVダウンロードボタンを表示
+- CSVインポート(生徒): ドラッグ&ドロップ対応、成功/スキップ件数表示(パスワード列必須、空行はスキップ)
 - スタッフ管理: CSVインポート/エクスポート、手動追加、削除(`admin`ロールは削除ボタン非表示)
 - 設定: QR発行期間(開始日・終了日)の表示・保存、開始>終了のバリデーション
 
 ### PWA
-`manifest.webmanifest`(`display: standalone`、テーマカラー`#0ea5e9`)+ 最小限の`sw.js`(`fetch`ハンドラを登録するだけで`respondWith()`しない、Android/Chromeのインストール可能要件を満たすためだけの存在)。オフライン対応自体はService Workerのキャッシュではなく、スキャン画面のIndexedDBロジックが担う。
+`manifest.webmanifest`(`display: standalone`、テーマカラー`#0ea5e9`)+ 最小限の`sw.js`(`fetch`ハンドラを登録するだけで`respondWith()`しない、Android/Chromeのインストール可能要件を満たすためだけの存在。オフラインキャッシュ処理はない)。
 
 ---
 
@@ -396,17 +323,10 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 独自ドメインを使う場合、`wrangler.jsonc`の`routes`に`custom_domain: true`で登録する。`workers.dev`のプレビューURLは、WARP/1.1.1.1 DNS経由の環境からは`error 1042`でアクセスできない(Cloudflareのループ防止機構)。カスタムドメインを使う場合はこの制約を受けない。
 
 ### 環境変数(`vars`、平文・非シークレット)
-`DOMAIN`, `ISSUE_START_DATE`(既定`2000-01-01`), `ISSUE_END_DATE`(既定`2099-12-31`), `LOGIN_MAX_FAILURES`(既定`10`), `LOGIN_LOCKOUT_MINUTES`(既定`30`), `MAX_TICKETS`(既定`5`)
+`DOMAIN`, `ISSUE_START_DATE`(既定`2000-01-01`), `ISSUE_END_DATE`(既定`2099-12-31`), `MAX_TICKETS`(既定`5`)
 
 ### シークレット(`wrangler secret put`、repo非管理)
 - `JWT_SECRET` — JWT署名鍵(`setup.sh`がランダム生成)
-
-### Cloudflare Access(`/admin/*` API保護、独自ドメイン利用時のみ)
-- Application: 保護対象 `<ドメイン>/admin`(`/admin/*` APIルートのみ)
-- Policy: Allow、許可メールアドレスをOne-time PIN方式で照合
-- **既知の制約**: フロントエンドはハッシュルーターのため、ブラウザが実際にリクエストするパスは常に`GET /`。Access保護下の`/admin/*`へは管理画面のJSがバックグラウンドでfetchする形になるため、未認証状態でSPAの「殻」自体(`index.html`)は誰でもロードできる(実データはAPIがAccessでブロックされるため保護される、UIの出し分けは引き続きフロントのJWTチェックが担う)。また未認証時、AccessはCloudflare Access自身のオリジンへリダイレクトしようとするが、これはブラウザのfetchからはCORSで弾かれ「Failed to fetch」と表示される。回避策として、初回のみ`https://<ドメイン>/admin/dashboard`等のURLに直接アクセスしてワンタイムパスコード認証を済ませ、Accessの認証Cookie(有効期限24時間)を発行させる必要がある
-- `GET /promote/list`は`/admin/`配下のパスではないため、現状Accessの保護対象外(アプリ側`requireAdmin`のみで保護)
-- `scripts/setup-access.sh` でAPI経由の自動設定が可能(任意)
 
 ### D1
 - Time Travel(30日PITR)が自動で有効。手動バックアップの仕組みは別途用意していない
@@ -418,8 +338,8 @@ UPDATE tickets SET used=1, used_at=?, scanned_by=? WHERE id=? AND is_valid=1 AND
 
 Vitest(`test/`)・Playwright E2E(`e2e/`)のテストコードはこのMac上には存在するが、**このリポジトリには含めていない**(`.gitignore`対象、[ディレクトリ構成](#ディレクトリ構成)参照)。自分で追加してよい。参考までに、参照実装時点での内容:
 
-- Vitest(`@cloudflare/vitest-pool-workers`、Miniflare上のローカルD1で実行、`npm test`): 認証・チケット・昇格・管理者の全ルートについてリクエスト/レスポンスのデータ整合性を検証。61件、全件成功(auth 11 / ticket 19 / promote 7 / admin 24)。主な回帰テスト: `/ticket/scan`への10並列リクエストで1件のみ成功することの確認、改ざんJWT・別シークレット署名・ロールミスマッチの拒否確認、UTF-8/Shift_JISのCSVインポートが文字化けしないことの確認、D1外部キー制約下での使用済みチケット強制削除・生徒削除カスケードの確認、昇格フロー全体の確認
-- Playwright(実際のブラウザ操作、`wrangler dev`をwebServerとして自動起動、`npm run test:e2e`): 43件(routing 7 / student-login 8 / staff-login 5 / qr 9 / scan 6 / admin-dashboard 8)。並列度は`workers: 3`に制限(単一`wrangler dev`インスタンス+外部CDN依存のqrcodeライブラリ読み込みが5並列だと稀にタイムアウトするため)
+- Vitest(`@cloudflare/vitest-pool-workers`、Miniflare上のローカルD1で実行、`npm test`): 認証・チケット・管理者の全ルートについてリクエスト/レスポンスのデータ整合性を検証。51件、全件成功(auth 10 / ticket 17 / admin 24)。主な回帰テスト: `/ticket/scan`への10並列リクエストで1件のみ成功することの確認、改ざんJWT・別シークレット署名・ロールミスマッチの拒否確認、UTF-8/Shift_JISのCSVインポートが文字化けしないことの確認、使用済みチケット強制削除・生徒削除カスケードの確認
+- Playwright(実際のブラウザ操作、`wrangler dev`をwebServerとして自動起動、`npm run test:e2e`): 38件(routing 7 / student-login 8 / staff-login 5 / qr 8 / scan 3 / admin-dashboard 7)。並列度は`workers: 3`に制限(単一`wrangler dev`インスタンス+外部CDN依存のqrcodeライブラリ読み込みが5並列だと稀にタイムアウトするため)
 
 型チェックは `npm run typecheck` で行う。
 
@@ -427,7 +347,6 @@ Vitest(`test/`)・Playwright E2E(`e2e/`)のテストコードはこのMac上に�
 
 ## 既知の制約・今後の課題
 
-- `GET /promote/list`が`/admin/`配下のパスにないため、Cloudflare Accessの保護対象になっていない(`requireAdmin`によるアプリ側の保護のみ)
-- Cloudflare Accessはハッシュルーターの制約上、管理画面UIの「殻」自体は保護できず`/admin/*` APIのみ保護できる。初回アクセス時に「Failed to fetch」が起きる問題への恒久対応(SPA側でのAccess未認証検知など)は未着手
 - フロントエンド(`student-qr.js`)の「あと{n}枚発行できます」表示は`5`をハードコードしている。バックエンドの発行上限は`MAX_TICKETS`環境変数で可変のため、この値を変更した場合はフロントエンドの表示が実際の上限とズレる
+- 会場の回線が不安定な場合、スタッフのQRスキャン画面はオフライン時に動作しない(以前あったIndexedDBベースのオフライン対応は運用の複雑さを下げるため削除した)
 - Playwright E2E: 旧Python版E2Eスイートの一部細かいUIケースは移植していない

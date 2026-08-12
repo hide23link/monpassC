@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings, Variables } from "../env";
-import { requireStudentOrPromoted, requireStaffOrAdmin } from "../middleware/auth";
+import { requireStudent, requireStaffOrAdmin } from "../middleware/auth";
 import { getConfig } from "../lib/config";
 import { getIssuePeriod, todayIso } from "../lib/settings";
 import { tokenUrlsafe } from "../lib/ids";
@@ -8,14 +8,13 @@ import { htmlEscape } from "../lib/html";
 import { getEntryStatus } from "../lib/entry-stats";
 
 // Ports main.py's `/ticket/*` routes (main.py:584-797).
-// PLAN.md section 4: no qr_image/qr_url/qr_content in any response here —
-// the client derives the QR payload string itself (`${origin}/scan/${ticket_id}`)
-// and renders the QR client-side.
-// PLAN.md section 3: /ticket/scan and /ticket/sync use an atomic conditional
-// UPDATE (`WHERE ... AND used=0`) instead of SQLite's BEGIN IMMEDIATE lock —
-// see inline comments below for the exact replacement per route. Error
-// strings for /ticket/scan are kept byte-identical to main.py since
-// staff-scan.js string-matches them.
+// No qr_image/qr_url/qr_content in any response here — the client derives
+// the QR payload string itself (`${origin}/scan/${ticket_id}`) and renders
+// the QR client-side.
+// /ticket/scan uses an atomic conditional UPDATE (`WHERE ... AND used=0`)
+// instead of SQLite's BEGIN IMMEDIATE lock — see inline comment below. Error
+// strings are kept byte-identical to main.py since staff-scan.js
+// string-matches them.
 export const ticketRoutes = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 type TicketRow = {
@@ -28,7 +27,7 @@ type TicketRow = {
   student_name?: string;
 };
 
-ticketRoutes.post("/issue", requireStudentOrPromoted, async (c) => {
+ticketRoutes.post("/issue", requireStudent, async (c) => {
   const studentId = c.get("payload").sub;
   const body = await c.req.json().catch(() => ({}));
   const guestName = typeof body.guest_name === "string" ? body.guest_name : "";
@@ -82,7 +81,7 @@ ticketRoutes.post("/issue", requireStudentOrPromoted, async (c) => {
   });
 });
 
-ticketRoutes.get("/list", requireStudentOrPromoted, async (c) => {
+ticketRoutes.get("/list", requireStudent, async (c) => {
   const studentId = c.get("payload").sub;
   const db = c.env.DB;
 
@@ -99,7 +98,7 @@ ticketRoutes.get("/list", requireStudentOrPromoted, async (c) => {
   return c.json(rows.results);
 });
 
-ticketRoutes.delete("/:ticket_id", requireStudentOrPromoted, async (c) => {
+ticketRoutes.delete("/:ticket_id", requireStudent, async (c) => {
   const studentId = c.get("payload").sub;
   const ticketId = c.req.param("ticket_id");
   const db = c.env.DB;
@@ -127,12 +126,12 @@ ticketRoutes.post("/scan", requireStaffOrAdmin, async (c) => {
   const usedAt = new Date().toISOString();
 
   // Atomic conditional UPDATE replaces SQLite's BEGIN IMMEDIATE lock
-  // (main.py:699-721) — see PLAN.md section 3. A single UPDATE that only
-  // succeeds when the row is still is_valid=1 AND used=0 gives the same
-  // "exactly one scan wins" guarantee under concurrent requests.
+  // (main.py:699-721). A single UPDATE that only succeeds when the row is
+  // still is_valid=1 AND used=0 gives the same "exactly one scan wins"
+  // guarantee under concurrent requests.
   // scanned_by is not in main.py (added post-migration for the "自分の
-  // スキャン履歴" staff feature) — records which staff/admin/promoted
-  // student performed the scan.
+  // スキャン履歴" staff feature) — records which staff/admin performed
+  // the scan.
   const result = await db
     .prepare(
       "UPDATE tickets SET used = 1, used_at = ?, scanned_by = ? WHERE id = ? AND is_valid = 1 AND used = 0",
@@ -211,77 +210,3 @@ ticketRoutes.get("/my-scans", requireStaffOrAdmin, async (c) => {
   return c.json(rows.results);
 });
 
-ticketRoutes.get("/cache", requireStaffOrAdmin, async (c) => {
-  const since = c.req.query("since");
-  const db = c.env.DB;
-
-  const rows = since
-    ? await db
-        .prepare(
-          "SELECT id as ticket_id, is_valid, used, used_at, created_at FROM tickets WHERE created_at > ? OR used_at > ?",
-        )
-        .bind(since, since)
-        .all()
-    : await db
-        .prepare(
-          "SELECT id as ticket_id, is_valid, used, used_at, created_at FROM tickets WHERE is_valid = 1",
-        )
-        .all();
-
-  return c.json(rows.results);
-});
-
-type OfflineScanItem = { ticket_id: string; scanned_at: string; session_id: string };
-
-ticketRoutes.post("/sync", requireStaffOrAdmin, async (c) => {
-  const items = (await c.req.json().catch(() => [])) as OfflineScanItem[];
-  const scannedBy = c.get("payload").sub;
-  const db = c.env.DB;
-  const results: Array<Record<string, unknown>> = [];
-
-  for (const item of items) {
-    const syncId = tokenUrlsafe(8);
-
-    // Atomic conditional UPDATE fixes the race bug in main.py:764-797, which
-    // does a plain read-then-write with no BEGIN IMMEDIATE (unlike /ticket/scan)
-    // — see PLAN.md section 3. Note: unlike /ticket/scan, the original sync
-    // logic never checked is_valid, only used — preserved here as-is.
-    // scanned_by: the whole batch belongs to the one staff device that is
-    // syncing it (authenticated by this request's JWT).
-    const result = await db
-      .prepare("UPDATE tickets SET used = 1, used_at = ?, scanned_by = ? WHERE id = ? AND used = 0")
-      .bind(item.scanned_at, scannedBy, item.ticket_id)
-      .run();
-
-    if (result.meta.changes === 1) {
-      await db
-        .prepare(
-          "INSERT INTO offline_scan_queue (id, ticket_id, scanned_at, session_id, synced, synced_at) VALUES (?, ?, ?, ?, 1, ?)",
-        )
-        .bind(syncId, item.ticket_id, item.scanned_at, item.session_id, item.scanned_at)
-        .run();
-      results.push({ ticket_id: item.ticket_id, conflict: 0, synced: 1 });
-      continue;
-    }
-
-    const existing = await db
-      .prepare("SELECT id FROM tickets WHERE id = ?")
-      .bind(item.ticket_id)
-      .first<{ id: string }>();
-
-    if (existing === null) {
-      results.push({ ticket_id: item.ticket_id, conflict: 0, error: "not found" });
-      continue;
-    }
-
-    await db
-      .prepare(
-        "INSERT INTO offline_scan_queue (id, ticket_id, scanned_at, session_id, synced, conflict) VALUES (?, ?, ?, ?, 1, 1)",
-      )
-      .bind(syncId, item.ticket_id, item.scanned_at, item.session_id)
-      .run();
-    results.push({ ticket_id: item.ticket_id, conflict: 1 });
-  }
-
-  return c.json(results);
-});

@@ -10,8 +10,6 @@ export type Bindings = {
   DOMAIN: string;
   ISSUE_START_DATE: string;
   ISSUE_END_DATE: string;
-  LOGIN_MAX_FAILURES: string;
-  LOGIN_LOCKOUT_MINUTES: string;
   MAX_TICKETS: string;
   JWT_SECRET: string;
   ADMIN_ID: string;

@@ -30,16 +30,6 @@ const Auth = (() => {
     return p ? p.role : null;
   }
 
-  function isPromoted() {
-    const p = getPayload();
-    return p ? (p.promoted === true || p.is_promoted === true) : false;
-  }
-
-  function canAccessStaff() {
-    const role = getRole();
-    return role === 'staff' || role === 'admin' || (role === 'student' && isPromoted());
-  }
-
   function getUserId() {
     const p = getPayload();
     return p ? p.sub : null;
@@ -50,7 +40,7 @@ const Auth = (() => {
     window.location.hash = '#/login';
   }
 
-  return { getToken, setToken, removeToken, getPayload, isValid, getRole, isPromoted, canAccessStaff, getUserId, logout };
+  return { getToken, setToken, removeToken, getPayload, isValid, getRole, getUserId, logout };
 })();
 
 // ログアウトボタン（グローバル関数として公開）
