@@ -19,7 +19,7 @@
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "encoding-japanese": "^2.2.0",
-    "hono": "^4.6.14",
+    "hono": "^4.13.18",
     "jose": "^5.9.6",
     "qrcode": "^1.5.4"
   },
