@@ -330,7 +330,7 @@ function ticketActions(t) {
       class="text-xs text-amber-600 border border-amber-300 px-2 py-0.5 rounded hover:bg-amber-50 whitespace-nowrap">
       ↩ 入場取消</button>`);
 
-  btns.push(`<button onclick="deleteTicketAdmin('${id}','${escHtml(t.guest_name || '')}')"
+  btns.push(`<button onclick="deleteTicketAdmin(${jsArg(id)},${jsArg(t.guest_name)})"
     class="text-xs text-gray-500 border border-gray-300 px-2 py-0.5 rounded hover:bg-red-50 hover:text-red-500 hover:border-red-300 whitespace-nowrap">
     🗑 削除</button>`);
 
@@ -613,11 +613,11 @@ function applyStudentFilter() {
       <td class="py-1.5 pr-3 text-right text-green-600">${s.entry_count ?? 0}</td>
       <td class="py-1.5">
         <div class="flex gap-1 flex-wrap">
-          <button onclick="openEditModal('${escHtml(s.id)}','${escHtml(s.name)}','${escHtml(s.class || '')}')"
+          <button onclick="openEditModal(${jsArg(s.id)},${jsArg(s.name)},${jsArg(s.class)})"
             class="text-xs text-sky-600 border border-sky-300 px-2 py-0.5 rounded hover:bg-sky-50">編集</button>
-          <button onclick="resetStudentPassword('${escHtml(s.id)}','${escHtml(s.name)}')"
+          <button onclick="resetStudentPassword(${jsArg(s.id)},${jsArg(s.name)})"
             class="text-xs text-amber-600 border border-amber-300 px-2 py-0.5 rounded hover:bg-amber-50">🔑 PW</button>
-          <button onclick="deleteStudent('${escHtml(s.id)}','${escHtml(s.name)}')"
+          <button onclick="deleteStudent(${jsArg(s.id)},${jsArg(s.name)})"
             class="text-xs text-red-500 border border-red-300 px-2 py-0.5 rounded hover:bg-red-50">削除</button>
         </div>
       </td>
@@ -696,7 +696,7 @@ async function saveStudent() {
   if (pw) body.password = pw;
 
   try {
-    await API.put(`/admin/students/${sid}`, body);
+    await API.put(`/admin/students/${encodeURIComponent(sid)}`, body);
     closeEditModal();
     showToast('更新しました', 'success');
     await loadStudents();
@@ -729,7 +729,7 @@ async function submitPwReset() {
   errEl.classList.add('hidden');
   try {
     const body = pw ? { password: pw } : {};
-    const res = await API.post(`/admin/students/${sid}/reset-password`, body);
+    const res = await API.post(`/admin/students/${encodeURIComponent(sid)}/reset-password`, body);
     closePwResetModal();
     document.getElementById('pw-modal-sid').textContent = sid;
     document.getElementById('pw-modal-name').textContent = name;
@@ -754,7 +754,7 @@ function closePwModal() {
 async function deleteStudent(sid, name) {
   if (!confirm(`生徒「${name}（${sid}）」を削除しますか？\n※発行済みチケットも全て削除されます`)) return;
   try {
-    await API.delete(`/admin/students/${sid}`);
+    await API.delete(`/admin/students/${encodeURIComponent(sid)}`);
     showToast(`「${name}」を削除しました`, 'success');
     await loadStudents();
   } catch (e) { showToast(e.message, 'error'); }
@@ -947,11 +947,11 @@ async function loadStaff() {
         <td class="py-1.5 pr-3">${escHtml(s.name)}</td>
         <td class="py-1.5 pr-3">
           <span class="text-xs px-2 py-0.5 rounded-full ${s.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-sky-100 text-sky-700'}">
-            ${s.role}
+            ${escHtml(s.role)}
           </span>
         </td>
         <td class="py-1.5">
-          ${s.role !== 'admin' ? `<button onclick="deleteStaff('${s.id}')" class="text-xs text-red-500 border border-red-300 px-2 py-0.5 rounded hover:bg-red-50">削除</button>` : ''}
+          ${s.role !== 'admin' ? `<button onclick="deleteStaff(${jsArg(s.id)})" class="text-xs text-red-500 border border-red-300 px-2 py-0.5 rounded hover:bg-red-50">削除</button>` : ''}
         </td>
       </tr>`).join('');
   } catch (e) { showToast(e.message, 'error'); }
@@ -985,7 +985,7 @@ async function addStaff() {
 async function deleteStaff(staffId) {
   if (!confirm(`スタッフ「${staffId}」を削除しますか？`)) return;
   try {
-    await API.delete(`/admin/staff/${staffId}`);
+    await API.delete(`/admin/staff/${encodeURIComponent(staffId)}`);
     showToast('削除しました', 'success');
     await loadStaff();
   } catch (e) { showToast(e.message, 'error'); }

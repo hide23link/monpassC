@@ -115,6 +115,15 @@ function escHtml(s) {
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// onclick="f(...)" のように、HTML属性の中のJS関数呼び出しへ値を渡すときに使う。
+// escHtmlだけだと、ブラウザが属性値の &#39; などを ' に戻してからJSとして
+// 実行するため、氏名に ' が入ると文字列が途中で切れてしまう。JSON.stringifyで
+// JSの文字列リテラル("..."、\ や " はエスケープ済み)にしてから、属性用にescHtmlする。
+// 使い方: `<button onclick="deleteStudent(${jsArg(s.id)})">` (前後に ' を付けない)
+function jsArg(v) {
+  return escHtml(JSON.stringify(String(v ?? '')));
+}
+
 // ISO日時文字列を「8/12 14:30」のような日本語ロケール表記に変換する。
 function formatDate(iso) {
   if (!iso) return '';
