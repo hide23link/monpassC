@@ -45,6 +45,25 @@
 - **Windows(WSLなし、cmd/PowerShellのみ)**: 未対応。bash互換シェルが必要
 - **CI/CD等の非対話環境**: 未対応(対話プロンプトを前提にしているため)
 
+### Cloudflare側の事前準備
+
+`scripts/setup.sh` を実行する前に、Cloudflare側で以下を済ませておく。
+
+1. **Cloudflareアカウントを作成する**
+   [https://dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up) から登録し、届いた確認メールのリンクを開いてメールアドレスを認証する。プランは無料(Free)のままでよい。Workers・D1とも無料枠の範囲で動く。
+2. **公開URLの種類を決める**
+   - **独自ドメインなし(`*.workers.dev`)の場合**: ダッシュボード左メニューの「Workers & Pages」(表記はダッシュボードの更新で変わることがある)を一度開き、アカウント固有の `workers.dev` サブドメイン(例: `myschool.workers.dev`)を登録しておく。未登録のまま初回デプロイすると、wrangler が登録するよう対話で求めてくる。アプリのURLは `https://<Worker名>.<サブドメイン>.workers.dev` になる。
+   - **独自ドメインを使う場合**: ダッシュボードの「ドメインを追加」(Add a domain)でドメインをCloudflareに追加する。続けて、ドメインを買ったレジストラ側でネームサーバーをCloudflareが指定するものに変更する。ドメインのステータスが「アクティブ」になるまで待つ(数分〜最大24時間程度)。アプリに使うサブドメイン(例: `monpass.example.com`)の **DNSレコードは自分で作らない**。デプロイ時に Workers の Custom Domains 機能が自動で作成する。同じ名前のレコードがすでにあるとデプロイが失敗するので、ある場合は先に削除しておく。
+3. **wrangler(Cloudflare公式CLI)でログインできることを確認する**
+   wrangler は `npm install` でプロジェクトに入るので、別途インストールは不要。`setup.sh` は未ログインなら自動で `wrangler login` を起動する。ブラウザが開いたらCloudflareにログインし、表示されたアクセス許可画面で「Allow」を押す。事前に確認したい場合は次を実行する。
+
+   ```bash
+   npx wrangler login
+   npx wrangler whoami   # ログイン中のアカウント名・アカウントIDが表示されればOK
+   ```
+
+   複数のCloudflareアカウントに所属している場合は、`whoami` の結果に目的のアカウントが含まれていることを確認する。wrangler がどのアカウントを使うか尋ねてきたら、そのアカウントを選ぶ。
+
 ### 初回構築(経験者向け・1回だけ)
 
 ```bash
@@ -65,6 +84,105 @@ bash scripts/setup.sh
 7. `wrangler deploy` で本番デプロイ
 
 サイトのタイトル(ブラウザタブ・ナビバー・PWAの名前)は入力を空欄にすると既定値「学園祭入場システム（仮）」のままになる。後から変更したい場合は `node scripts/set-app-title.mjs "新しいタイトル"` を実行すればよい。
+
+### 構築結果の確認(Cloudflareダッシュボード)
+
+`setup.sh` が終わったら、Cloudflareに次のものが登録されているかダッシュボードで確認する。
+
+| 確認する場所 | 登録されているべきもの |
+|---|---|
+| 「Workers & Pages」の一覧 | 入力したWorker名(既定 `monpassc`)のWorker |
+| 上記Worker →「設定(Settings)」→「ドメインとルート(Domains & Routes)」 | 独自ドメイン(Custom Domain)、または `*.workers.dev` のURL |
+| 上記Worker →「設定」→「変数とシークレット(Variables and Secrets)」 | `JWT_SECRET`(種類: シークレット、値は表示されない)と `DOMAIN`・`MAX_TICKETS`・`ISSUE_START_DATE`・`ISSUE_END_DATE` |
+| 「ストレージとデータベース(Storage & Databases)」→「D1 SQL Database」 | 入力したDB名(既定 `monpass-db`)のデータベース。中に `students`・`tickets`・`staff`・`settings` テーブルと、マイグレーション管理用の `d1_migrations` テーブルがある |
+
+最初の管理者が登録されたかは、D1の「コンソール(Console)」タブで `SELECT id, role FROM staff;` を実行するか、次のコマンドで確認できる。
+
+```bash
+npx wrangler d1 execute monpass-db --remote --command "SELECT id, role FROM staff;"
+```
+
+その後、アプリのURLを開き、生徒ログイン画面の「スタッフ・管理者の方は こちら」から管理者IDでログインできれば構築は完了。
+
+### setup.shを使わずに手動で構築する場合
+
+`setup.sh` が途中で失敗した場合や、各ステップを自分で確認しながら進めたい場合の手順。以下では例として Worker名 `monpassc`、DB名 `monpass-db` を使う。
+
+1. **依存関係のインストールとログイン**
+
+   ```bash
+   npm install
+   npx wrangler login
+   ```
+
+2. **D1データベースを作成する**
+
+   ```bash
+   npx wrangler d1 create monpass-db
+   ```
+
+   出力に表示される `database_id`(`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` の形式)を控える。あとで確認したいときは `npx wrangler d1 list` で一覧を表示できる。ダッシュボードの「D1 SQL Database」→「作成」から作ってもよい。
+
+3. **`wrangler.jsonc` を作成する**
+
+   ```bash
+   cp wrangler.jsonc.template wrangler.jsonc
+   ```
+
+   エディタで開き、プレースホルダーを置き換える。
+
+   | プレースホルダー | 置き換える値 |
+   |---|---|
+   | `__WORKER_NAME__` | Worker名(例: `monpassc`)。英小文字・数字・ハイフンのみ |
+   | `__DB_NAME__` | D1のDB名(例: `monpass-db`) |
+   | `__DB_ID__` | 手順2で控えた `database_id` |
+   | `__MAX_TICKETS__` | 生徒1人あたりのチケット上限(例: `5`) |
+   | `__DOMAIN_VALUE__` | 独自ドメインならそのホスト名(例: `monpass.example.com`)。`workers.dev` なら、いったん仮の値のまま進めて手順7で書き換える |
+   | `__ROUTES_BLOCK__` の行 | 独自ドメインなら下記に置き換える。`workers.dev` ならこの行ごと削除する |
+
+   ```jsonc
+     "routes": [
+       { "pattern": "monpass.example.com", "custom_domain": true }
+     ],
+   ```
+
+4. **D1にテーブルを作る(マイグレーション適用)**
+
+   ```bash
+   npx wrangler d1 migrations apply monpass-db --remote
+   ```
+
+   `migrations/` 内のSQLが順に本番D1に適用される。ローカル開発(`npm run dev`)もする場合は `--local` でも実行しておく。
+
+5. **Workerを登録(デプロイ)し、シークレットを設定する**
+
+   ```bash
+   npx wrangler deploy
+   openssl rand -hex 32 | npx wrangler secret put JWT_SECRET
+   ```
+
+   最初の `wrangler deploy` でCloudflare上にWorkerが作成され、独自ドメインを指定していればDNSレコードと証明書も自動で用意される。`JWT_SECRET` はログイン用トークンの署名鍵で、設定するとWorkerに即時反映される。設定するまではログインできない。この値はどこにも保存されず、あとから確認する手段もないが、再設定すれば全員がログインし直しになるだけなので問題ない。
+
+6. **最初の管理者アカウントを作る**
+
+   ```bash
+   node scripts/create-admin.mjs monpass-db admin
+   ```
+
+   パスワードを聞かれるので入力する。入力中の文字は画面に表示されるので、人に見られない場所で実行すること。2人目以降の管理者・スタッフは管理画面から追加できる。
+
+7. **(`workers.dev` の場合のみ)`DOMAIN` を実際のURLに直す**
+
+   手順5の `wrangler deploy` の出力に `https://monpassc.<サブドメイン>.workers.dev` が表示される。`wrangler.jsonc` の `vars.DOMAIN` をそのホスト名(`https://` を除いた部分)に書き換え、もう一度 `npx wrangler deploy` する。
+
+8. **サイトタイトルを変える(任意)**
+
+   ```bash
+   node scripts/set-app-title.mjs "○○高校 文化祭入場"
+   npx wrangler deploy
+   ```
+
+最後に上の「構築結果の確認」で、登録内容をチェックする。
 
 ### 各スクリプトの役割まとめ
 
