@@ -73,7 +73,7 @@ async function loadStudentTickets() {
     const issued = tickets.length;
     // 注意: この5枚はハードコードで、実際の発行上限はサーバー側の
     // MAX_TICKETS環境変数(既定5)で変更できる。上限を変えた場合は
-    // ここも合わせて修正しないと表示がズレる(既知の制約、SPEC.md参照)。
+    // ここも合わせて修正しないと表示がズレる(既知の制約)。
     const remaining = 5 - issued;
 
     const badge = document.getElementById('remaining-badge');

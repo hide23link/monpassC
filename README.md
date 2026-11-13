@@ -4,8 +4,6 @@
 
 単一のCloudflare Workersプロジェクトが API と静的アセットの両方を同一オリジンで配信する(Cloudflare Pagesは不使用、CORS設定は不要)。元々はFastAPI + SQLiteの別実装(非公開リポジトリ、以下「旧Python版」)からの移行として作られた。
 
-アーキテクチャ・DB設計・API仕様・フロントエンド仕様・インフラ構成・テスト・既知の制約などの技術詳細は **[SPEC.md](./SPEC.md)** を参照。
-
 ## 目次
 
 - [スクリーンショット](#スクリーンショット)
@@ -63,7 +61,7 @@ bash scripts/setup.sh
 3. `wrangler d1 create` でD1データベースを新規作成し、`wrangler.jsonc.template` から実際の `wrangler.jsonc` を生成
 4. D1マイグレーション適用(ローカル・リモート両方)
 5. `JWT_SECRET` をランダム生成して `wrangler secret put`
-6. 最初の管理者アカウントをID/パスワード入力させて直接D1にシード(`scripts/create-admin.mjs` を内部で使用。詳細は[SPEC.mdの認証・権限モデル](./SPEC.md#認証権限モデル)参照 — このアプリには「初期管理者を自動作成する」仕組みがないため、この一度だけの直接シードが唯一の起点になる)
+6. 最初の管理者アカウントをID/パスワード入力させて直接D1にシード(`scripts/create-admin.mjs` を内部で使用。このアプリには「初期管理者を自動作成する」仕組みがないため、この一度だけの直接シードが唯一の起点になる)
 7. `wrangler deploy` で本番デプロイ
 
 サイトのタイトル(ブラウザタブ・ナビバー・PWAの名前)は入力を空欄にすると既定値「学園祭入場システム（仮）」のままになる。後から変更したい場合は `node scripts/set-app-title.mjs "新しいタイトル"` を実行すればよい。
