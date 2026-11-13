@@ -94,7 +94,7 @@ bash scripts/setup.sh
 | 「Workers & Pages」の一覧 | 入力したWorker名(既定 `monpassc`)のWorker |
 | 上記Worker →「設定(Settings)」→「ドメインとルート(Domains & Routes)」 | 独自ドメイン(Custom Domain)、または `*.workers.dev` のURL |
 | 上記Worker →「設定」→「変数とシークレット(Variables and Secrets)」 | `JWT_SECRET`(種類: シークレット、値は表示されない)と `DOMAIN`・`MAX_TICKETS`・`ISSUE_START_DATE`・`ISSUE_END_DATE` |
-| 「ストレージとデータベース(Storage & Databases)」→「D1 SQL Database」 | 入力したDB名(既定 `monpass-db`)のデータベース。中に `students`・`tickets`・`staff`・`settings` テーブルと、マイグレーション管理用の `d1_migrations` テーブルがある |
+| 「ストレージとデータベース(Storage & Databases)」→「D1 SQL Database」 | 入力したDB名(既定 `monpass-db`)のデータベース。中に `students`・`tickets`・`staff`・`settings`・`login_failures` テーブルと、マイグレーション管理用の `d1_migrations` テーブルがある |
 
 最初の管理者が登録されたかは、D1の「コンソール(Console)」タブで `SELECT id, role FROM staff;` を実行するか、次のコマンドで確認できる。
 
@@ -206,6 +206,8 @@ npx wrangler d1 execute monpass-db --remote --command "SELECT id, role FROM staf
 | 生徒 (`student`) | 自分のQRチケット発行(最大5枚、`MAX_TICKETS`で変更可)・一覧・削除 | 学籍番号 + パスワード |
 | スタッフ (`staff`) | QRスキャンによる入場処理、来場状況閲覧、自分のスキャン履歴閲覧 | スタッフID + パスワード |
 | 管理者 (`admin`) | 上記全部 + 生徒/スタッフ/チケットのCRUD、CSVインポート/エクスポート、発行期間設定、ダッシュボード集計 | スタッフID + パスワード(`staff`テーブルの`role='admin'`) |
+
+どのロールも、同じIDで **10回続けてログインに失敗すると30分間ロック** される(存在しないIDも同様に数える)。ロック中はパスワードが正しくてもログインできない。生徒のロックは、管理者がパスワードを再発行すると解除される。スタッフ・管理者のロックは30分待つか、D1で `DELETE FROM login_failures WHERE user_key = 'staff:<ID>';` を実行して解除する。
 
 ---
 

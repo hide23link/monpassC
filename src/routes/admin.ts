@@ -4,6 +4,7 @@ import type { Bindings, Variables } from "../env";
 import { requireAdmin } from "../middleware/auth";
 import { tokenUrlsafe } from "../lib/ids";
 import { generateAlnumPassword } from "../lib/password";
+import { resetFailures } from "../lib/lockout";
 import { decodeCsvBytes, parseCsv, csvResponse } from "../lib/csv";
 import { getEntryStatus } from "../lib/entry-stats";
 
@@ -281,6 +282,8 @@ adminRoutes.post("/students/:student_id/reset-password", async (c) => {
     .prepare("UPDATE students SET password_hash = ? WHERE id = ?")
     .bind(pwHash, studentId)
     .run();
+  // ログイン失敗でロックされている生徒も、再発行したパスワードですぐ入れるようにする
+  await resetFailures(db, `student:${studentId}`);
   return c.json({ password: newPassword });
 });
 

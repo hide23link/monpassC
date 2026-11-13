@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import type { Bindings, Variables } from "../env";
 import { getConfig } from "../lib/config";
 import { issueStudentToken, issueStaffToken } from "../lib/jwt";
+import { lockedSeconds, recordFailure, resetFailures, lockedMessage } from "../lib/lockout";
 
 // ログイン系ルート。旧Python版の`/auth/login`(student_login)・
 // `/auth/staff/login`(staff_login)を移植したもの(bcrypt.checkpw -> bcryptjs、
@@ -24,6 +25,11 @@ authRoutes.post("/login", async (c) => {
   const config = getConfig(c.env);
   const db = c.env.DB;
 
+  // 連続失敗でロック中なら、パスワードを確かめずに429を返す
+  const userKey = `student:${studentId}`;
+  const wait = await lockedSeconds(db, userKey);
+  if (wait > 0) return c.json({ detail: lockedMessage(wait) }, 429);
+
   const row = await db
     .prepare("SELECT id, password_hash FROM students WHERE id = ?")
     .bind(studentId)
@@ -34,9 +40,11 @@ authRoutes.post("/login", async (c) => {
   // するが、レスポンス自体は区別しない) — どちらの学籍番号が存在するかを
   // 攻撃者に教えないため。
   if (row === null || !(await bcrypt.compare(password, row.password_hash))) {
+    await recordFailure(db, userKey);
     return c.json({ detail: "学籍番号またはパスワードが正しくありません" }, 401);
   }
 
+  await resetFailures(db, userKey);
   const token = await issueStudentToken(studentId, config.jwtSecret);
   return c.json({ token });
 });
@@ -52,15 +60,22 @@ authRoutes.post("/staff/login", async (c) => {
   const config = getConfig(c.env);
   const db = c.env.DB;
 
+  // 連続失敗でロック中なら、パスワードを確かめずに429を返す
+  const userKey = `staff:${staffId}`;
+  const wait = await lockedSeconds(db, userKey);
+  if (wait > 0) return c.json({ detail: lockedMessage(wait) }, 429);
+
   const row = await db
     .prepare("SELECT id, password_hash, role FROM staff WHERE id = ?")
     .bind(staffId)
     .first<StaffRow>();
 
   if (row === null || !(await bcrypt.compare(password, row.password_hash))) {
+    await recordFailure(db, userKey);
     return c.json({ detail: "IDまたはパスワードが正しくありません" }, 401);
   }
 
+  await resetFailures(db, userKey);
   const token = await issueStaffToken(staffId, row.role, config.jwtSecret);
   return c.json({ token });
 });
