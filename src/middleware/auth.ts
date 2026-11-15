@@ -15,7 +15,7 @@ type Env = { Bindings: Bindings; Variables: Variables };
 // 失敗時はdecodeToken内でAuthErrorがthrowされ、各ミドルウェアのcatch節が拾う。
 async function decode(c: Parameters<MiddlewareHandler<Env>>[0]): Promise<JwtPayload> {
   const config = getConfig(c.env);
-  return decodeToken(c.req.header("Authorization"), config.jwtSecret);
+  return await decodeToken(c.req.header("Authorization"), config.jwtSecret);
 }
 
 // AuthError(トークン欠落・不正)は401、ロール不一致は各ミドルウェアが
